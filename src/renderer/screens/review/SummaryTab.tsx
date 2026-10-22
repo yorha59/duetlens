@@ -74,8 +74,8 @@ export function SummaryTab({
   // 重点文件可以锚在 diff 之外(协议允许 off-diff 隐患),那类跳不过去,标出来而不是给一个空点击
   const focusFiles = useMemo(() => {
     const inDiff = new Set(diff.map((f) => f.path));
-    return (review?.summaryFiles ?? []).map((f) => ({ ...f, inDiff: inDiff.has(f.path) }));
-  }, [review?.summaryFiles, diff]);
+    return (review?.summaryFiles ?? []).filter((file) => !review?.workspaceMissingFiles?.includes(file.path)).map((f) => ({ ...f, inDiff: inDiff.has(f.path) }));
+  }, [review?.summaryFiles, review?.workspaceMissingFiles, diff]);
 
   const additions = diff.reduce((s, f) => s + f.additions, 0);
   const deletions = diff.reduce((s, f) => s + f.deletions, 0);

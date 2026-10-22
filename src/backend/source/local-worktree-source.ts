@@ -93,7 +93,7 @@ export class LocalWorktreeSource implements Source {
       }
       this.tree = (await this.git(['write-tree'])).trim();
       // agent 的 cwd 也是本轮快照,普通只读工具与 MCP 看到同一份代码。
-      await this.git(['checkout-index', '--all', '--force']);
+      if (this.target.materialize !== false) await this.git(['checkout-index', '--all', '--force']);
       return { title: `未提交改动 · ${path.basename(repo)}`, cwd: this.snapshot, headSha: this.tree };
     } catch (error) {
       await this.dispose();
@@ -111,6 +111,10 @@ export class LocalWorktreeSource implements Source {
 
   saveSnapshot(directory: string): Promise<void> {
     return archiveSnapshotObjects(path.join(this.snapshot, '.git'), directory, this.originalObjects);
+  }
+
+  async hasFile(file: string): Promise<boolean> {
+    return !!(await this.git(['ls-tree', '-z', this.tree, '--', `:(literal)${file}`])).length;
   }
 
   async getFile(file: string): Promise<string> {

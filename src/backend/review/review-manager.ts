@@ -39,6 +39,7 @@ import { loadBaseInstructions, loadReviewPrompt, saveReviewLayer } from '../prom
 import { buildRerunPrompt, INCREMENTAL_REVIEW_RULE } from '../prompt/rerun-prompt';
 import { buildScanPrompt } from '../prompt/scan-prompt';
 import { createSource } from '../source/create-source';
+import { worktreeFingerprint } from '../source/worktree-fingerprint';
 import { PrWorkspace } from '../source/pr-workspace';
 import { fetchPrContextForReview } from '../source/github-pr-context';
 import { checkEnvironment } from '../env/environment-check';
@@ -249,6 +250,7 @@ export class ReviewManager extends EventEmitter {
   /** 正在提交的 review;PR review 是原子提交,并发两份就是把同一批评论发给作者两遍。 */
   private readonly submitting = new Set<string>();
   private readonly workspaceBusy = new Set<string>();
+  private readonly localFingerprints = new Map<string, string>();
   private readonly workspaceMigrations = new Map<string, Promise<void>>();
   private readonly prWorkspace: PrWorkspace;
   private readonly makeSource: typeof createSource;
@@ -321,6 +323,34 @@ export class ReviewManager extends EventEmitter {
     const selected = this.store.setWorkspaceMode(remote.id, mode);
     this.forward({ reviewId: remote.id, type: 'review', payload: this.store.getReview(remote.id)! });
     return selected;
+  }
+
+  async refreshLocal(reviewId: string) {
+    const review = this.store.getReview(reviewId);
+    if (!review || (!review.localReview && review.source !== 'local-worktree') || !review.repoPath) return { changed: false };
+    if (this.workspaceBusy.has(reviewId) || this.sessions.get(reviewId)?.isBusy() || review.status === 'scanning') return { changed: false, deferred: true };
+    this.workspaceBusy.add(reviewId);
+    let source: Source | undefined;
+    try {
+      const anchored = [...new Set([...this.store.listFindings(reviewId).map((finding) => finding.file), ...this.store.listDiscussions(reviewId).map((discussion) => discussion.file).filter((file): file is string => !!file)])].sort();
+      const fingerprint = `${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`;
+      if (this.localFingerprints.get(reviewId) === fingerprint) return { changed: false };
+      source = this.makeSource({ ...targetOf(review, this.snapshotRoot), materialize: false });
+      const prepared = await source.prepare();
+      if (!prepared.headSha) throw new Error('本地代码快照不可用');
+      const rawDiff = await source.getDiff();
+      const missing: string[] = [];
+      for (const file of anchored) if (source.hasFile && !await source.hasFile(file)) missing.push(file);
+      if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, reviewId));
+      const changed = review.workspaceHead !== prepared.headSha || this.store.getRawDiff(reviewId) !== rawDiff || JSON.stringify(review.workspaceMissingFiles ?? []) !== JSON.stringify(missing);
+      if (changed) {
+        this.store.updateWorkspaceDisplay(reviewId, prepared.headSha, rawDiff, missing);
+        this.forward({ reviewId, type: 'workspace', payload: this.store.getReview(reviewId)! });
+      }
+      // 如果创建快照期间工作区再次变化,下一次轮询仍会重试。
+      if (fingerprint === `${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`) this.localFingerprints.set(reviewId, fingerprint);
+      return { changed };
+    } finally { await source?.dispose(); this.workspaceBusy.delete(reviewId); }
   }
 
   async syncStatus(reviewId: string) {
@@ -499,11 +529,13 @@ export class ReviewManager extends EventEmitter {
   }
 
   getFindings(reviewId: string): Finding[] {
-    return this.store.listFindings(reviewId);
+    const hidden = new Set(this.store.getReview(reviewId)?.workspaceMissingFiles ?? []);
+    return this.store.listFindings(reviewId).filter((finding) => !hidden.has(finding.file));
   }
 
   getDiscussions(reviewId: string): Discussion[] {
-    return this.store.listDiscussions(reviewId);
+    const hidden = new Set(this.store.getReview(reviewId)?.workspaceMissingFiles ?? []);
+    return this.store.listDiscussions(reviewId).filter((discussion) => !discussion.file || !hidden.has(discussion.file));
   }
 
   getMessages(discussionId: string): Message[] {
@@ -593,23 +625,18 @@ export class ReviewManager extends EventEmitter {
   }
 
   async getFileContent(reviewId: string, filePath: string): Promise<string | null> {
-    const live = this.providers.get(reviewId);
-    if (live) {
-      this.touch(reviewId);
-      // source.getFile 现在读不到就抛(取证闸要求可分);这条路是给 DiffPane 展开上下文用的,
-      // 读不到回 null 就是它一直以来的语义,别把异常透到 IPC 去。
-      try {
-        return await live.getFile(filePath);
-      } catch {
-        return null;
-      }
-    }
     const review = this.store.getReview(reviewId);
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
-    const source = this.makeSource(targetOf(review, this.snapshotRoot));
+    const expectedHead = review.workspaceHead ?? this.store.getRound(reviewId, review.currentRound)?.headSha;
+    const live = this.providers.get(reviewId);
+    if (live && (!(review.localReview || review.source === 'local-worktree') || expectedHead === this.store.getRound(reviewId, review.currentRound)?.headSha)) {
+      this.touch(reviewId);
+      try { return await live.getFile(filePath); } catch { return null; }
+    }
+    const source = this.makeSource({ ...targetOf(review, this.snapshotRoot), materialize: false });
     try {
       const prepared = await source.prepare();
-      if (review.localReview && prepared.headSha !== (this.store.getRound(reviewId, review.currentRound)?.headSha ?? this.store.getWorkspaceSnapshotTree(reviewId))) return null;
+      if ((review.localReview || review.source === 'local-worktree') && prepared.headSha !== expectedHead) return null;
       return await source.getFile(filePath);
     } catch {
       return null; // 同上:这条路读不到就是 null
@@ -955,6 +982,8 @@ export class ReviewManager extends EventEmitter {
       this.forward({ reviewId, type: 'message', payload: message });
       return message;
     }
+    const review = this.store.getReview(reviewId);
+    if ((review?.localReview || review?.source === 'local-worktree') && review.workspaceHead && review.workspaceHead !== this.store.getRound(reviewId, review.currentRound)?.headSha) throw new Error('本地文件已变化,请先增量复审再询问 agent；也可以仅保存批注');
     if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
     const session = this.sessions.get(reviewId) ?? (await this.resumeSession(reviewId));
     this.touch(reviewId);
@@ -1569,6 +1598,7 @@ export class ReviewManager extends EventEmitter {
         this.store.setDiff(reviewId, rawDiff);
         round = this.store.startRound(reviewId, opts.round, roundInput);
       }
+      if (review.localReview || review.source === 'local-worktree') this.store.setWorkspaceSnapshotTree(reviewId, prepared.headSha ?? null);
       for (const finding of skipped) {
         const line = shiftedFindingLine(finding, deltaFiles);
         if (line !== finding.line && !finding.anchorDropped) this.setFindingAnchor(reviewId, finding.id, line);

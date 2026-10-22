@@ -52,6 +52,8 @@ interface ReviewRow {
   parent_review_id: string | null;
   repo_path: string | null;
   workspace_remote_id?: string | null;
+  workspace_snapshot_tree?: string | null;
+  workspace_missing_files?: string;
   local_review?: number;
   local_base_ref?: string | null;
   agent: string;
@@ -166,6 +168,8 @@ function toReview(r: ReviewRow): Review {
     repoPath: r.repo_path,
     localReview: !!r.local_review,
     workspaceRemoteId: r.workspace_remote_id ?? null,
+    workspaceHead: r.workspace_snapshot_tree ?? null,
+    workspaceMissingFiles: JSON.parse(r.workspace_missing_files ?? '[]'),
     localBaseRef: r.local_base_ref ?? null,
     agent: r.agent as AgentKind,
     agentSessionId: r.agent_session_id,
@@ -426,6 +430,13 @@ export class ReviewStore {
 
   setWorkspaceSnapshotTree(id: string, head: string | null): void {
     this.db.prepare('UPDATE reviews SET workspace_snapshot_tree = ? WHERE id = ?').run(head, id);
+  }
+
+  updateWorkspaceDisplay(id: string, head: string, rawDiff: string, missing: string[]): void {
+    this.db.transaction(() => {
+      this.setDiff(id, rawDiff);
+      this.db.prepare('UPDATE reviews SET workspace_snapshot_tree = ?, workspace_missing_files = ?, updated_at = ? WHERE id = ?').run(head, JSON.stringify(missing), now(), id);
+    })();
   }
 
   getWorkspaceSnapshotTree(id: string): string | null {

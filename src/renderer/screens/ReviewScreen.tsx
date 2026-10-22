@@ -899,6 +899,32 @@ function ReviewPane({
   useEffect(() => { reportDraft('unsent', unsent.length > 0); }, [unsent.length, reportDraft]);
   useEffect(() => () => { if (reportedRef.current) notifyRef.current?.(false); }, []);
 
+  useEffect(() => {
+    if (!review?.workspaceMissingFiles?.length) return;
+    if (activeDiscussionId && !discussions.some((discussion) => discussion.id === activeDiscussionId)) setActiveDiscussionId(null);
+    if (focusFindingId && !findings.some((finding) => finding.id === focusFindingId)) setFocusFindingId(null);
+    if (activePath && review.workspaceMissingFiles.includes(activePath)) setActivePath(diff[0]?.path ?? null);
+  }, [review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
+
+  const [localRefreshError, setLocalRefreshError] = useState('');
+  useEffect(() => {
+    if (!reviewId || !active || (!review?.localReview && review?.source !== 'local-worktree')) return;
+    let alive = true;
+    let checking = false;
+    const refresh = () => {
+      if (!alive || checking || document.hidden || draftFlags.current.annotate || draftFlags.current.composer) return;
+      checking = true;
+      void window.duetlens.review.refreshLocal(reviewId).then(() => { if (alive) setLocalRefreshError(''); })
+        .catch((error: Error) => { if (alive) setLocalRefreshError(error.message); })
+        .finally(() => { checking = false; });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const timer = window.setInterval(refresh, 5000);
+    return () => { alive = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [reviewId, active, review?.localReview, review?.source]);
+
   // scope 每次渲染都是新对象,直接进上面那个 effect 的依赖会让全局键 handler 每帧重注册
   const stepScope = scope?.onStep;
 
@@ -1276,7 +1302,7 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
-            notice={rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
+            notice={localRefreshError ? `本地刷新失败：${localRefreshError}` : review?.workspaceHead && review.workspaceHead !== rounds.at(-1)?.headSha ? '本地工作区已更新 · 已删除文件的批注和结论已隐藏；其余结论待增量复审。' : rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
             renderFileActions={(path, line) => <OpenFileButton reviewId={reviewId} path={path} line={line} hasLocalRepo={!!review?.repoPath} />}
             onOpenLine={async (path, line) => {
               const result = await window.duetlens.editor.openFile(reviewId, path, false, line);

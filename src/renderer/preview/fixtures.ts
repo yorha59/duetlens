@@ -958,6 +958,7 @@ export function installPreviewApi(): void {
       return { ...codexOk, pi: piOk, gh: ghOk };
     },
     review: {
+      refreshLocal: async () => ({ changed: false }),
       shareSession: async (id) => ({ url: `http://127.0.0.1:49152/sessions/preview-${id}` }),
       revokeShare: async () => {},
       workspaceState: async () => workspaceState(),

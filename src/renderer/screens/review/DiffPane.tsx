@@ -17,6 +17,7 @@ import { AnnotateComposer, type NewFindingDraft } from './AnnotateComposer';
 import { PencilIcon } from './PencilIcon';
 import { SelectionPopover } from './SelectionPopover';
 import { DiffFindBar } from './DiffFindBar';
+import { VirtualDiffBody } from './VirtualDiffBody';
 import { CopyFilePathButton } from './CopyFilePathButton';
 import { EditorLineStore } from './editor-line-store';
 import { primaryModifier } from '../../keys';
@@ -545,6 +546,9 @@ export function DiffPane(props: DiffPaneProps) {
 
   // 同一帧内两者都变时,上面那条(声明在先)已按新的 cur 画完,这里退化成空操作。
   useLayoutEffect(() => paintCurrent(cur), [cur]);
+  const onBodyMount = useCallback(() => {
+    if (ref.current && matchesRef.current.length) paintMatches(ref.current, matchesRef.current, curRef.current);
+  }, []);
 
   // 关掉即清空:检索词是纯导航态,下次 ⌘F 应当是干净的一次新检索(切 review 也走这条)
   useEffect(() => {
@@ -721,6 +725,8 @@ export function DiffPane(props: DiffPaneProps) {
           key={f.path}
           fileActions={props.renderFileActions && <EditorFileActions file={f} store={editorLines} render={props.renderFileActions} />}
           file={f}
+          forceRender={f.path === activePath || f.path === matches[cur]?.file}
+          onBodyMount={onBodyMount}
           findings={byFile.get(f.path) ?? []}
           discussions={discByFile.get(f.path) ?? []}
           onAnchorClick={onAnchorClick}
@@ -1068,6 +1074,8 @@ function GapExpander({
 function DiffFileView({
   fileActions,
   file,
+  forceRender,
+  onBodyMount,
   findings,
   discussions,
   onAnchorClick,
@@ -1096,6 +1104,8 @@ function DiffFileView({
 }: {
   fileActions?: React.ReactNode;
   file: DiffFile;
+  forceRender: boolean;
+  onBodyMount: () => void;
   findings: Finding[];
   discussions: Discussion[];
   onAnchorClick: (mark: AnchorMark) => void;
@@ -1280,7 +1290,8 @@ function DiffFileView({
       )}
 
       {/* 折叠态只留标题栏:已看勾选框与「展开」按钮就在其中,再加一条说明纯属复述 */}
-      {collapsed ? null : file.binary ? (
+      {collapsed ? null : <VirtualDiffBody force={forceRender || !!compose || findings.some((finding) => finding.id === focusFindingId)} onMount={onBodyMount} estimatedHeight={Math.max(80, file.hunks.reduce((n, h) => n + h.lines.length * 22 + 28, 0))}>
+      {file.binary ? (
         <div className="diff-note">二进制文件,不显示逐行 diff。</div>
       ) : file.hunks.length === 0 ? (
         <div className="diff-note">无内容改动(仅重命名/模式变更)。</div>
@@ -1311,6 +1322,7 @@ function DiffFileView({
           {gapNode(gaps.trail)}
         </>
       )}
+      </VirtualDiffBody>}
     </section>
   );
 }

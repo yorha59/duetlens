@@ -1,12 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './ShareSessionButton.css';
 
 /** 点击立即复制当前 review 的链接,分享目标不随远端/本地视图切换。 */
 export function ShareSessionButton({ reviewId }: { reviewId: string }) {
+  const root = useRef<HTMLSpanElement>(null);
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const timer = !busy && !error ? window.setTimeout(() => setOpen(false), 3000) : null;
+    const outside = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } };
+    document.addEventListener('mousedown', outside);
+    window.addEventListener('keydown', escape);
+    return () => { if (timer !== null) window.clearTimeout(timer); document.removeEventListener('mousedown', outside); window.removeEventListener('keydown', escape); };
+  }, [open, busy, error, url]);
   const copy = async () => {
     if (busy) return;
     setBusy(true); setError('');
@@ -14,7 +24,7 @@ export function ShareSessionButton({ reviewId }: { reviewId: string }) {
     catch (error) { setError((error as Error).message); }
     finally { setBusy(false); setOpen(true); }
   };
-  return <span className="share-session-action">
+  return <span ref={root} className="share-session-action">
     <button type="button" className="rerun-cta" disabled={busy} onClick={() => void copy()} title="复制当前审核视图的链接,供本机 Codex 读取评论和文件">{busy ? '复制中…' : '分享会话'}</button>
     {open && <section className="share-session-popover" aria-label="会话分享链接">
       <button type="button" className="share-session-close" aria-label="关闭分享提示" onClick={() => setOpen(false)}>×</button>

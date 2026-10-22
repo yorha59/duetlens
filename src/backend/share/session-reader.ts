@@ -29,20 +29,22 @@ export class SharedSessionReader {
   }
 
   private head(review: Review): string | null {
-    return this.store.getRound(review.id, review.currentRound)?.headSha ?? review.headRef ?? this.store.getWorkspaceSnapshotTree(review.id);
+    return ((review.localReview || review.source === 'local-worktree') ? review.workspaceHead : null) ?? this.store.getRound(review.id, review.currentRound)?.headSha ?? review.headRef ?? this.store.getWorkspaceSnapshotTree(review.id);
   }
 
   private files(review: Review) {
     const diff = parseUnifiedDiff(this.store.getRawDiff(review.id) ?? '');
+    const missing = new Set(review.workspaceMissingFiles ?? []);
     const anchored = [...this.store.listFindings(review.id).map((f) => f.file), ...this.store.listDiscussions(review.id).map((d) => d.file)];
-    return { diff, paths: [...new Set([...diff.map((f) => f.path), ...anchored.filter((f): f is string => !!f)])].filter(isShareFilePath) };
+    return { diff, paths: [...new Set([...diff.map((f) => f.path), ...anchored.filter((f): f is string => !!f && !missing.has(f))])].filter(isShareFilePath) };
   }
 
   context(id: string, url: string) {
     const review = this.review(id);
     const head = this.head(review);
     const { diff, paths } = this.files(review);
-    const findings = this.store.listFindings(id);
+    const missing = new Set(review.workspaceMissingFiles ?? []);
+    const findings = this.store.listFindings(id).filter((finding) => !missing.has(finding.file));
     return {
       kind: 'duetlens.shared-review', schemaVersion: 1, generatedAt: new Date().toISOString(),
       access: { localOnly: true, readOnly: true, liveComments: true },
@@ -50,10 +52,10 @@ export class SharedSessionReader {
       repository: { path: review.repoPath, source: review.source, sourceRef: review.sourceRef },
       review: { id, title: review.title, mode: review.localReview ? 'local' : review.source === 'github-pr' ? 'remote' : 'local',
         parentReviewId: review.parentReviewId, workspaceRemoteId: review.workspaceRemoteId ?? null,
-        round: review.currentRound, head, baseRef: review.localBaseRef ?? review.baseRef, status: review.status,
-        summary: review.summaryBody, summaryFiles: review.summaryFiles, updatedAt: review.updatedAt },
+        round: review.currentRound, head, reviewedHead: this.store.getRound(id, review.currentRound)?.headSha ?? null, baseRef: review.localBaseRef ?? review.baseRef, status: review.status,
+        summary: review.summaryBody, summaryFiles: review.summaryFiles.filter((file) => !missing.has(file.path)), updatedAt: review.updatedAt },
       findings,
-      discussions: this.store.listDiscussions(id).map((discussion) => ({ ...discussion,
+      discussions: this.store.listDiscussions(id).filter((discussion) => !discussion.file || !missing.has(discussion.file)).map((discussion) => ({ ...discussion,
         findingId: findings.find((finding) => finding.discussionId === discussion.id)?.id ?? null,
         messages: this.store.listMessages(discussion.id),
       })),
@@ -127,7 +129,7 @@ export class SharedSessionReader {
     this.checkVersion(this.review(id), head, round);
     return { path: file, head: revision, round: review.currentRound, kind, content,
       editablePath: kind === 'file' && review.repoPath ? path.join(review.repoPath, file) : null,
-      contentSource: 'reviewed-snapshot',
+      contentSource: review.workspaceHead && review.workspaceHead !== this.store.getRound(id, review.currentRound)?.headSha ? 'workspace-snapshot' : 'reviewed-snapshot',
     };
   }
 }

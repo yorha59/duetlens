@@ -45,6 +45,7 @@ export const IpcChannels = {
   reviewList: 'review:list',
   reviewListRecent: 'review:list-recent',
   reviewGet: 'review:get',
+  reviewRefreshLocal: 'review:refresh-local',
   reviewShare: 'review:share',
   reviewRevokeShare: 'review:revoke-share',
   reviewFindings: 'review:findings',
@@ -429,6 +430,7 @@ export interface AppInfo {
 export type ReviewEvent =
   | { reviewId: string; type: 'round'; payload: ReviewRound }
   | { reviewId: string; type: 'finding'; payload: Finding }
+  | { reviewId: string; type: 'workspace'; payload: Review }
   | { reviewId: string; type: 'message'; payload: Message }
   | { reviewId: string; type: 'finding-proposal'; payload: FindingProposal }
   | { reviewId: string; type: 'messages-cleared'; discussionId: string }
@@ -468,6 +470,7 @@ export interface DuetlensApi {
     listRecent(): Promise<RecentReview[]>;
     get(id: string): Promise<Review | null>;
     /** 复制当前视图的本机实时读取链接。 */
+    refreshLocal(reviewId: string): Promise<{ changed: boolean; deferred?: boolean }>;
     shareSession(reviewId: string): Promise<{ url: string }>;
     revokeShare(reviewId: string): Promise<void>;
     findings(reviewId: string): Promise<Finding[]>;

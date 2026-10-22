@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewRound } from '@shared/domain';
 import type { DiffFile } from '@shared/diff';
 import type { AgentEvent, TokenUsage } from '@shared/agent-events';
@@ -390,6 +390,12 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
           void window.duetlens.review.get(reviewId).then((rv) => rv && setReview(rv));
           return;
         }
+        case 'workspace':
+          setReview(e.payload);
+          loadDiff();
+          void window.duetlens.review.findings(reviewId).then((items) => alive && setFindings(items));
+          void window.duetlens.review.discussions(reviewId).then((items) => alive && setDiscussions(items));
+          return;
         case 'review':
           setReview(e.payload);
           setStatus(e.payload.status);
@@ -452,10 +458,13 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
     };
   }, [reviewId]);
 
+  const missing = useMemo(() => new Set(review?.workspaceMissingFiles ?? []), [review?.workspaceMissingFiles]);
+  const visibleFindings = useMemo(() => findings.filter((finding) => !missing.has(finding.file)), [findings, missing]);
+  const visibleDiscussions = useMemo(() => discussions.filter((discussion) => !discussion.file || !missing.has(discussion.file)), [discussions, missing]);
   return {
     review,
-    findings,
-    discussions,
+    findings: visibleFindings,
+    discussions: visibleDiscussions,
     diff,
     diffReady,
     messages,

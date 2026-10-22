@@ -6,6 +6,8 @@ export interface ReviewTarget {
   source: SourceKind;
   /** 本地快照对象归档目录,仅运行时注入。 */
   snapshotPath?: string;
+  /** UI 快照仅需 Git 对象,无需把整仓检出到临时目录。 */
+  materialize?: boolean;
   /** github-pr: PR url / owner/repo#123 / 号;local-branch: 分支名(空=当前 HEAD);gitbutler: vbranch id */
   ref: string;
   /** 本地仓库工作目录(git 操作与读文件所在);github-pr 可为空(走 gh api) */
@@ -61,6 +63,7 @@ export interface Source {
   getDiffSince?(previousHead: string): Promise<string>;
   /** 持久化本地快照对象,供下轮与重启后做增量比较。 */
   saveSnapshot?(directory: string): Promise<void>;
+  hasFile?(file: string): Promise<boolean>;
   /**
    * 按相对路径读被审文件(新侧内容)。
    * 读不到(已删除 / 不在该 ref / 越界)**必须抛**,不要回一句占位文本 ——

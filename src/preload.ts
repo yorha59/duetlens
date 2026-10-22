@@ -29,6 +29,7 @@ const api: DuetlensApi = {
     discussions: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewDiscussions, reviewId),
     messages: (discussionId) => ipcRenderer.invoke(IpcChannels.reviewMessages, discussionId),
     start: (input) => ipcRenderer.invoke(IpcChannels.reviewStart, input),
+    refreshLocal: (id) => ipcRenderer.invoke(IpcChannels.reviewRefreshLocal, id),
     shareSession: (id) => ipcRenderer.invoke(IpcChannels.reviewShare, id),
     revokeShare: (id) => ipcRenderer.invoke(IpcChannels.reviewRevokeShare, id),
     workspaceState: (id) => ipcRenderer.invoke(IpcChannels.reviewWorkspaceState, id),
