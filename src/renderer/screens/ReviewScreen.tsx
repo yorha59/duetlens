@@ -1134,7 +1134,7 @@ function ReviewPane({
     if (repository) actions.push({ id: 'repository', label: '仓库设置', content: repository });
     if (review?.localReview || review?.source === 'local-worktree') actions.push({ id: 'refresh', label: '刷新本地代码', content: <button className="rerun-cta" type="button" onClick={() => void refreshLocal(true)} disabled={localRefreshing || scanning} title="刷新本地文件、审查基线及同步状态,不会启动 agent">{localRefreshing ? '刷新中…' : '刷新本地代码'}</button> });
     if (!unscanned) actions.push({ id: 'rerun', label: '重新机审', content: <button className="rerun-cta" type="button" onClick={() => setRerunOpen(true)} disabled={scanning} title="带上本轮结论再跑一轮机审 (⌘E)">↻ 重跑机审</button> });
-    return <>{source}{sync}<ReviewToolbar actions={actions} /></>;
+    return <ReviewToolbar actions={actions} middle={<>{source}{sync}</>} />;
   };
 
   return (
