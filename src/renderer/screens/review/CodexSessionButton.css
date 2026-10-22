@@ -1,0 +1,10 @@
+.codex-binding-scrim { position: fixed; inset: 0; z-index: 1000; background: #0009; display: grid; place-items: center; padding: 24px; }
+.codex-binding-panel { width: min(620px, 100%); max-height: 90vh; overflow: auto; background: var(--bg, #11151e); color: var(--text, #ddd); border: 1px solid var(--border, #394354); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px; font-size: 14px; }
+.codex-binding-panel h2 { margin: 0; font-size: 20px; }
+.codex-binding-panel p { margin: 0 0 8px; line-height: 1.6; opacity: .8; }
+.codex-binding-panel input:not([type=radio]) { width: 100%; box-sizing: border-box; padding: 10px; background: transparent; color: inherit; border: 1px solid var(--border, #394354); border-radius: 6px; }
+.codex-binding-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.codex-binding-actions button { background: transparent; color: inherit; border: 1px solid var(--border, #394354); border-radius: 6px; padding: 8px 12px; }
+.sel-pop .codex-selection-status { position: absolute; top: 100%; left: 0; margin-top: 8px; padding: 10px; background: var(--bg, #11151e); color: var(--text, #ddd); border: 1px solid var(--border, #394354); border-radius: 6px; min-width: 260px; white-space: normal; }
+
+.sel-pop { max-width: calc(100vw - 16px); flex-wrap: wrap; }

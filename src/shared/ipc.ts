@@ -1,3 +1,4 @@
+import type { CodexBinding, CodexSelection, CodexHandoffResult } from './codex-handoff';
 /**
  * IPC 契约:main(Node 后端)与 renderer(React)之间的唯一通道定义。
  * preload 经 contextBridge 暴露 `window.duetlens`,renderer 只依赖这里的类型。
@@ -45,6 +46,9 @@ export const IpcChannels = {
   reviewList: 'review:list',
   reviewListRecent: 'review:list-recent',
   reviewGet: 'review:get',
+  codexBindingGet: 'codex:binding-get',
+  codexBindingSet: 'codex:binding-set',
+  codexAddSelection: 'codex:add-selection',
   reviewRefreshLocal: 'review:refresh-local',
   reviewShare: 'review:share',
   reviewRevokeShare: 'review:revoke-share',
@@ -472,6 +476,9 @@ export interface DuetlensApi {
     listRecent(): Promise<RecentReview[]>;
     get(id: string): Promise<Review | null>;
     /** 复制当前视图的本机实时读取链接。 */
+    codexBinding(reviewId: string): Promise<CodexBinding | null>;
+    bindCodex(reviewId: string, binding: CodexBinding | null): Promise<CodexBinding | null>;
+    addToCodex(reviewId: string, selection: CodexSelection): Promise<CodexHandoffResult>;
     refreshLocal(reviewId: string, forceMetadata?: boolean): Promise<{ changed: boolean; deferred?: boolean }>;
     shareSession(reviewId: string): Promise<{ url: string }>;
     revokeShare(reviewId: string): Promise<void>;

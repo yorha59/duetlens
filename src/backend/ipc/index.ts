@@ -1,3 +1,6 @@
+import path from 'node:path';
+import type { CodexBinding, CodexSelection } from '@shared/codex-handoff';
+import { prepareCodexHandoff } from '../codex/selection-handoff';
 import { app, clipboard, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
@@ -36,6 +39,19 @@ export interface IpcDeps {
 
 /** 注册 main 侧全部 IPC handler,并把 ReviewManager 事件转发给 renderer。 */
 export function registerIpcHandlers({ manager, broadcast, updater, shareServer }: IpcDeps): void {
+  ipcMain.handle(IpcChannels.codexBindingGet, (_event, id: string) => manager.getCodexBinding(id));
+  ipcMain.handle(IpcChannels.codexBindingSet, (_event, id: string, binding: CodexBinding | null) => manager.setCodexBinding(id, binding));
+  ipcMain.handle(IpcChannels.codexAddSelection, async (_event, id: string, selection: CodexSelection) => {
+    const review = await manager.getReview(id);
+    const binding = manager.getCodexBinding(id);
+    if (!review || !binding) throw new Error('请先绑定 Codex 对话');
+    const session = await shareServer.share(id);
+    const result = await prepareCodexHandoff(review, selection, manager.getDiff(id), path.join(app.getPath('userData'), 'codex-context'), binding, session.url);
+    clipboard.write({ text: result.text, html: result.html });
+    try { await shell.openExternal(result.url); }
+    catch { throw new Error('上下文已复制,但未能打开 Codex；请确认已安装 Codex 桌面应用'); }
+    return { snapshot: result.snapshot, copiedOnly: result.copiedOnly, message: result.copiedOnly ? '文件行引用已复制；在 Codex 按 ⌘V 添加,保留已有草稿。' : '已打开绑定对话并请求预填文件行引用；等待你手动发送。' };
+  });
   ipcMain.handle(IpcChannels.reviewRefreshLocal, (_event, id: string, forceMetadata?: boolean) => manager.refreshLocal(id, forceMetadata));
   ipcMain.handle(IpcChannels.reviewShare, async (_event, id: string) => {
     const result = await shareServer.share(id);

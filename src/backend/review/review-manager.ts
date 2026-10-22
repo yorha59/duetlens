@@ -326,6 +326,9 @@ export class ReviewManager extends EventEmitter {
     return selected;
   }
 
+  getCodexBinding(id: string) { return this.store.getCodexBinding(id); }
+  setCodexBinding(id: string, binding: import('@shared/codex-handoff').CodexBinding | null) { return this.store.setCodexBinding(id, binding); }
+
   async refreshLocal(reviewId: string, forceMetadata = false) {
     const review = this.store.getReview(reviewId);
     if (!review || (!review.localReview && review.source !== 'local-worktree') || !review.repoPath) return { changed: false };

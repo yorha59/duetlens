@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { AgentErrorKind } from '@shared/agent-events';
 import type { RecentReview, WorkspaceState } from '@shared/ipc';
+import { parseCodexThread, type CodexBinding } from '@shared/codex-handoff';
 import type { DB } from './database';
 import {
   findingNarrative,
@@ -411,6 +412,24 @@ export class ReviewStore {
     const state = this.getWorkspaceState(id);
     this.db.prepare(`INSERT INTO workspace_views (remote_id, synced_commit) VALUES (?, ?)
       ON CONFLICT(remote_id) DO UPDATE SET synced_commit = excluded.synced_commit`).run(state.remoteId, commit);
+  }
+
+  private codexBindingOwner(id: string): string {
+    const review = this.getReview(id);
+    if (!review) throw new Error('审核任务不存在');
+    return review.workspaceRemoteId ?? review.parentReviewId ?? id;
+  }
+  getCodexBinding(id: string): CodexBinding | null {
+    const row = this.db.prepare('SELECT thread_id, mode FROM codex_session_bindings WHERE review_id = ?').get(this.codexBindingOwner(id)) as { thread_id: string; mode: CodexBinding['mode'] } | undefined;
+    return row ? { threadId: row.thread_id, mode: row.mode } : null;
+  }
+  setCodexBinding(id: string, value: CodexBinding | null): CodexBinding | null {
+    const owner = this.codexBindingOwner(id);
+    if (!value) { this.db.prepare('DELETE FROM codex_session_bindings WHERE review_id = ?').run(owner); return null; }
+    const threadId = parseCodexThread(value.threadId);
+    if (value.mode !== 'copy' && value.mode !== 'prefill') throw new Error('无效的传递方式');
+    this.db.prepare('INSERT INTO codex_session_bindings (review_id, thread_id, mode) VALUES (?, ?, ?) ON CONFLICT(review_id) DO UPDATE SET thread_id=excluded.thread_id, mode=excluded.mode').run(owner, threadId, value.mode);
+    return { threadId, mode: value.mode };
   }
 
   createReviewShare(reviewId: string): string {

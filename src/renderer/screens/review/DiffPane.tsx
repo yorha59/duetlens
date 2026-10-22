@@ -92,6 +92,7 @@ interface AnchorPick {
   placeLine: number;
   label: string;
   snippet: string;
+  selectedText?: string;
 }
 
 /** 某行上的锚点标记(gutter 圆点):agent(codex finding)/ human(用户讨论·手动 finding)。 */
@@ -165,6 +166,7 @@ function EditorFileActions({ file, store, render }: {
 export interface DiffPaneProps {
   notice?: string;
   renderFileActions?: (path: string, line?: number) => React.ReactNode;
+  onAddToCodex?: (anchor: DiscussionAnchor, text: string) => Promise<string>;
   onOpenLine?: (path: string, line: number) => Promise<void>;
   files: DiffFile[];
   findings: Finding[];
@@ -645,7 +647,7 @@ export function DiffPane(props: DiffPaneProps) {
         .filter((x): x is { r: HTMLElement; line: number } => x.line != null);
       const fileEl = startRow.closest('.diff-file') as HTMLElement | null;
       const file = fileEl?.getAttribute('data-path') ?? null;
-      if (!file || withLine.length === 0) {
+      if (!file || !endRow || endRow.closest('.diff-file') !== fileEl || withLine.length === 0) {
         setSel(null); // 空选区 / 越界不可锚定
         return;
       }
@@ -653,8 +655,14 @@ export function DiffPane(props: DiffPaneProps) {
       const last = withLine[withLine.length - 1].line;
       const label = `${basename(file)}:${first === last ? first : `${first}–${last}`}`;
       const snippet = snippetOf(withLine[withLine.length - 1].r);
+      const selectedRows = new Map(withLine.map(({ r, line }) => {
+        const text = r.querySelector(side === 'old' ? 'td.src:not(.new)' : 'td.src.new, table.unified td.src')?.textContent ?? r.querySelector('td.src')?.textContent ?? '';
+        return [line, text === '\u00a0' ? '' : text];
+      }));
+      const selectedText = last - first <= 5000 ? Array.from({ length: last - first + 1 }, (_, i) => selectedRows.get(first + i) ?? '').join('\n') : [...selectedRows.values()].join('\n');
       const pick: AnchorPick = {
         anchor: { file, line: first, lineEnd: first === last ? null : last, side },
+        selectedText,
         placeLine: anchorKey(last, side),
         label,
         snippet,
@@ -662,7 +670,7 @@ export function DiffPane(props: DiffPaneProps) {
       // 横向锚在代码区左缘而非选区中点:跟着选区走会随行长忽左忽右,长行更会被甩出视野。
       // 纵向仍贴选区首行上方,贴到顶栏则翻到选区下方。
       const codeBox = (rows[0].closest('.code-scroll') as HTMLElement | null) ?? pane;
-      const pw = 260; // 动作条估算宽度,仅用于右边界收敛
+      const pw = 420; // 动作条估算宽度,仅用于右边界收敛
       const left = Math.max(8, Math.min(window.innerWidth - pw - 8, codeBox.getBoundingClientRect().left + 10));
       const rect = selection.getRangeAt(0).getBoundingClientRect();
       let top = rows[0].getBoundingClientRect().top - 44;
@@ -803,6 +811,7 @@ export function DiffPane(props: DiffPaneProps) {
           label={sel.pick.label}
           top={sel.top}
           left={sel.left}
+          onAddToCodex={props.onAddToCodex ? () => props.onAddToCodex!(sel.pick.anchor, sel.pick.selectedText ?? sel.pick.snippet) : undefined}
           onAnnotate={() => startCompose(sel.pick)}
         />
       )}

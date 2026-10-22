@@ -1,20 +1,19 @@
+import { useState } from 'react';
 import { PencilIcon } from './PencilIcon';
 
-/**
- * 框选 diff 代码后浮出的动作条:选区 file:行范围 + 单枚「就此处批注」。
- * 只有一个动作是有意的 —— 提问与记 finding 已合到同一张 composer 卡里(见 AnnotateComposer),
- * 在弹层里预先分叉等于逼用户在打字前就下结论。浮层本身保留:框选常常只是想复制代码,不该直接弹卡。
- * 纯呈现:定位与选区解析在 DiffPane 里,这里只画。
- */
+/** 框选动作:在 Duetlens 批注,或把文件行引用传到绑定的 Codex 对话。定位和选区解析由 DiffPane 托管。 */
 export interface SelectionPopoverProps {
   label: string;
   /** 固定定位坐标(viewport) */
   top: number;
   left: number;
   onAnnotate: () => void;
+  onAddToCodex?: () => Promise<string>;
 }
 
-export function SelectionPopover({ label, top, left, onAnnotate }: SelectionPopoverProps) {
+export function SelectionPopover({ label, top, left, onAnnotate, onAddToCodex }: SelectionPopoverProps) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
   return (
     <div
       className="sel-pop show"
@@ -26,6 +25,12 @@ export function SelectionPopover({ label, top, left, onAnnotate }: SelectionPopo
       <button className="sp-annotate" onClick={onAnnotate}>
         <PencilIcon /> 段落批注
       </button>
+      <button type="button" className="sp-annotate" disabled={!onAddToCodex || busy} title={onAddToCodex ? '添加带行号的 Codex 文件引用' : '请先点击顶栏“绑定 Codex”'} onClick={() => {
+        if (!onAddToCodex || busy) return;
+        setBusy(true); setMessage('');
+        void onAddToCodex().then(setMessage).catch((error: Error) => setMessage(error.message)).finally(() => setBusy(false));
+      }}>{busy ? '添加中…' : '添加到 Codex'}</button>
+      {message && <span className="codex-selection-status" role="status">{message}</span>}
     </div>
   );
 }

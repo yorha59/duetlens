@@ -1,3 +1,5 @@
+import type { CodexBinding } from '@shared/codex-handoff';
+import { CodexSessionButton } from './review/CodexSessionButton';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewIntensity, Severity, Triage, UiSettings } from '@shared/domain';
 import { AGENT_LABELS, DEFAULT_UI_SETTINGS, INTENSITY_LABELS, isUnscanned, VERDICT_LABELS } from '@shared/domain';
@@ -912,6 +914,8 @@ function ReviewPane({
     if (activePath && review.workspaceMissingFiles.includes(activePath) && !diff.some((file) => file.path === activePath)) setActivePath(diff[0]?.path ?? null);
   }, [review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
 
+  const [codexBinding, setCodexBinding] = useState<CodexBinding | null>(null);
+  const [codexBindingOpen, setCodexBindingOpen] = useState(false);
   const [localRefreshError, setLocalRefreshError] = useState('');
   const [localRefreshing, setLocalRefreshing] = useState(false);
   const localRefreshInFlight = useRef(false);
@@ -941,7 +945,7 @@ function ReviewPane({
   // 有模态压在上面时,导航键一律挂起。判据必须是**所有**打开中的模态,不能只认帮助层:
   // 重跑面板同样是带 scrim 的 dialog,漏掉它时在说明输入框里按 ⌘F 会把焦点抢到对话框背后的
   // 检索条,⌘G 还会在背后换命中并滚动 diff。DiffPane 自带的 ⌘G 也吃这同一个判据。
-  const modalOpen = helpOpen || rerunOpen || !!workspaceModal;
+  const modalOpen = helpOpen || rerunOpen || !!workspaceModal || codexBindingOpen;
 
   // 全局导航快捷键:? 帮助 / ⌘1-3 切 tab / ⌘U 切 diff / ⌘F 查 diff 内容 / ⌘⇧F 聚焦过滤框 /
   // ⌘E 重跑 / Esc 关闭。
@@ -1182,6 +1186,7 @@ function ReviewPane({
           {pr?.nwo && <span className="mono nwo">{pr.nwo}</span>}
         </div>
         <span className="spacer" />
+        {review && <CodexSessionButton reviewId={review.id} binding={codexBinding} onBinding={setCodexBinding} open={codexBindingOpen} onOpen={setCodexBindingOpen} />}
         {review && <ShareSessionButton reviewId={review.id} />}
         {workspaceToolbar}
         {(review?.localReview || review?.source === 'local-worktree') && <button
@@ -1317,6 +1322,7 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
+            onAddToCodex={codexBinding && reviewId ? async (anchor, text) => (await window.duetlens.review.addToCodex(reviewId, { ...anchor, text })).message : undefined}
             notice={localRefreshError ? `本地刷新失败：${localRefreshError}` : review?.workspaceHead && (review.workspaceHead !== rounds.at(-1)?.headSha || (review.localReview && review.localBaseRef !== rounds.at(-1)?.baseSha)) ? '本地工作区或基线已更新 · 旧结论来自上次审核快照；请复审当前 PR 改动。' : rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
             renderFileActions={(path, line) => <OpenFileButton reviewId={reviewId} path={path} line={line} hasLocalRepo={!!review?.repoPath} />}
             onOpenLine={async (path, line) => {
