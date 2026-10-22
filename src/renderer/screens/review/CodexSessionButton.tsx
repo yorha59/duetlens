@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import type { CodexBinding } from '@shared/codex-handoff';
 import './CodexSessionButton.css';
 
-export function CodexSessionButton({ reviewId, binding, onBinding, open, onOpen, onShowChat }: {
+export function CodexSessionButton({ reviewId, binding, onBinding, open, onOpen, onShowChat, hideTriggers = false }: {
+  hideTriggers?: boolean;
   reviewId: string; binding: CodexBinding | null; onBinding: (binding: CodexBinding | null) => void; open: boolean; onOpen: (open: boolean) => void; onShowChat: () => void;
 }) {
   const [value, setValue] = useState('');
@@ -22,8 +23,8 @@ export function CodexSessionButton({ reviewId, binding, onBinding, open, onOpen,
     finally { setBusy(false); }
   };
   return <>
-    <button className="rerun-cta" type="button" onClick={() => binding ? onShowChat() : onOpen(true)} title={binding ? `同步对话 ${binding.threadId}` : '绑定已有 Codex 会话,同步展示并发送选区'}>{binding ? 'Codex 对话' : '绑定 Codex'}</button>
-    {binding && <button className="rerun-cta" type="button" onClick={() => onOpen(true)} title="更换或解除 Codex 绑定">更换绑定</button>}
+    {!hideTriggers && <button className="rerun-cta" type="button" onClick={() => binding ? onShowChat() : onOpen(true)} title={binding ? `同步对话 ${binding.threadId}` : '绑定已有 Codex 会话,同步展示并发送选区'}>{binding ? 'Codex 对话' : '绑定 Codex'}</button>}
+    {!hideTriggers && binding && <button className="rerun-cta" type="button" onClick={() => onOpen(true)} title="更换或解除 Codex 绑定">更换绑定</button>}
     {open && <div className="codex-binding-scrim" onClick={() => !busy && onOpen(false)}>
       <form className="codex-binding-panel" role="dialog" aria-modal="true" aria-label="绑定 Codex 对话" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === 'Escape' && !busy) { event.stopPropagation(); onOpen(false); } }} onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <h2>绑定 Codex 对话</h2>

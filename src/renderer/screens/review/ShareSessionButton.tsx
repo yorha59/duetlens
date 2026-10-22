@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './ShareSessionButton.css';
 
 /** 点击立即复制当前 review 的链接,分享目标不随远端/本地视图切换。 */
 export function ShareSessionButton({ reviewId }: { reviewId: string }) {
   const root = useRef<HTMLSpanElement>(null);
+  const popup = useRef<HTMLElement>(null);
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
@@ -11,7 +13,7 @@ export function ShareSessionButton({ reviewId }: { reviewId: string }) {
   useEffect(() => {
     if (!open) return;
     const timer = !busy && !error ? window.setTimeout(() => setOpen(false), 3000) : null;
-    const outside = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const outside = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } };
     document.addEventListener('mousedown', outside);
     window.addEventListener('keydown', escape);
@@ -26,7 +28,7 @@ export function ShareSessionButton({ reviewId }: { reviewId: string }) {
   };
   return <span ref={root} className="share-session-action">
     <button type="button" className="rerun-cta" disabled={busy} onClick={() => void copy()} title="复制当前审核视图的链接,供本机 Codex 读取评论和文件">{busy ? '复制中…' : '分享会话'}</button>
-    {open && <section className="share-session-popover" aria-label="会话分享链接">
+    {open && createPortal(<section ref={popup} className="share-session-popover share-session-floating" aria-label="会话分享链接">
       <button type="button" className="share-session-close" aria-label="关闭分享提示" onClick={() => setOpen(false)}>×</button>
       {error ? <p role="alert">{error}</p> : <>
         <p role="status">会话链接已复制</p>
@@ -39,6 +41,6 @@ export function ShareSessionButton({ reviewId }: { reviewId: string }) {
           finally { setBusy(false); }
         })()}>停止分享</button>
       </>}
-    </section>}
+    </section>, document.body)}
   </span>;
 }

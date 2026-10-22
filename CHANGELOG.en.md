@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.17] - 2026-10-22
+
+- Secondary review actions now live in More. Drag actions onto the toolbar to pin them or back into the menu to unpin them; button controls and a persistent layout are also supported.
+
 ## [0.12.0-fork.16] - 2026-10-22
 
 - Bind a local Codex chat and mirror its messages, streaming replies, and execution state beside the review. Open the bound chat in Codex to connect.

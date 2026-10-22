@@ -1,5 +1,6 @@
 import type { CodexBinding } from '@shared/codex-handoff';
 import { CodexSessionButton } from './review/CodexSessionButton';
+import { ReviewToolbar, type ToolbarAction } from './review/ReviewToolbar';
 import { CodexChatPane } from './review/CodexChatPane';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewIntensity, Severity, Triage, UiSettings } from '@shared/domain';
@@ -43,7 +44,7 @@ import { Resizer } from './review/Resizer';
 import { ReviewStatusBar } from './review/StatusBar';
 import { describeRoundError, describeSendFailure } from './review/round-error';
 import { ShareSessionButton } from './review/ShareSessionButton';
-import { WorkspaceToolbar } from './review/WorkspaceToolbar';
+import { WorkspaceToolbar, type WorkspaceToolbarRender } from './review/WorkspaceToolbar';
 import { RerunPanel } from './review/RerunPanel';
 import { ScopeSwitcher } from './review/ScopeMenu';
 import { newStartId, roundSteps, StartSteps, type StartStep } from '../components/StartProgress';
@@ -371,7 +372,7 @@ export function ReviewScreen(props: {
       onLocalRefreshed={onLocalRefreshed}
       workspaceModal={workspaceModal}
       workspaceToolbar={container?.source === 'github-pr' && !container.headRef && !container.parentReviewId ?
-        <WorkspaceToolbar refreshKey={workspaceRefresh} review={container} state={workspace} onChange={setWorkspace} onModalChange={setWorkspaceModal} onApplied={() => { setActiveSha(null); setScopeId(null); if (reviewId) void window.duetlens.review.setActiveScope(reviewId, null); setWorkspaceRevision((revision) => revision + 1); }} /> : null}
+        (renderActions) => <WorkspaceToolbar renderActions={renderActions} refreshKey={workspaceRefresh} review={container} state={workspace} onChange={setWorkspace} onModalChange={setWorkspaceModal} onApplied={() => { setActiveSha(null); setScopeId(null); if (reviewId) void window.duetlens.review.setActiveScope(reviewId, null); setWorkspaceRevision((revision) => revision + 1); }} /> : null}
     />
   );
 }
@@ -408,7 +409,7 @@ function ReviewPane({
   /** 范围切换绑定;这条 review 不是 PR 容器时为 null(没有范围这回事) */
   scope?: ScopeBinding | null;
   onLocalRefreshed?: () => void;
-  workspaceToolbar?: ReactNode;
+  workspaceToolbar?: ((render: WorkspaceToolbarRender) => ReactNode) | null;
   workspaceModal?: boolean;
 }) {
   // 多 tab 下所有已开的 review 都挂载着,只有活跃那枚可见(语义见 TabVisibility)。
@@ -1123,6 +1124,19 @@ function ReviewPane({
     );
   }
 
+  const renderToolbar: WorkspaceToolbarRender = (source, repository, sync) => {
+    const actions: ToolbarAction[] = [];
+    if (review) {
+      actions.push({ id: 'codex-chat', label: 'Codex 对话', content: <button className="rerun-cta" type="button" onClick={() => codexBinding ? setTab('codex') : setCodexBindingOpen(true)}>{codexBinding ? 'Codex 对话' : '绑定 Codex'}</button> });
+      if (codexBinding) actions.push({ id: 'codex-binding', label: '更换绑定', content: <button className="rerun-cta" type="button" onClick={() => setCodexBindingOpen(true)}>更换 Codex 绑定</button> });
+      actions.push({ id: 'share', label: '分享会话', content: <ShareSessionButton reviewId={review.id} /> });
+    }
+    if (repository) actions.push({ id: 'repository', label: '仓库设置', content: repository });
+    if (review?.localReview || review?.source === 'local-worktree') actions.push({ id: 'refresh', label: '刷新本地代码', content: <button className="rerun-cta" type="button" onClick={() => void refreshLocal(true)} disabled={localRefreshing || scanning} title="刷新本地文件、审查基线及同步状态,不会启动 agent">{localRefreshing ? '刷新中…' : '刷新本地代码'}</button> });
+    if (!unscanned) actions.push({ id: 'rerun', label: '重新机审', content: <button className="rerun-cta" type="button" onClick={() => setRerunOpen(true)} disabled={scanning} title="带上本轮结论再跑一轮机审 (⌘E)">↻ 重跑机审</button> });
+    return <>{source}{sync}<ReviewToolbar actions={actions} /></>;
+  };
+
   return (
     <div
       className="rev-root"
@@ -1189,25 +1203,7 @@ function ReviewPane({
           {pr?.nwo && <span className="mono nwo">{pr.nwo}</span>}
         </div>
         <span className="spacer" />
-        {review && <CodexSessionButton reviewId={review.id} binding={codexBinding} onBinding={setCodexBinding} open={codexBindingOpen} onOpen={setCodexBindingOpen} onShowChat={() => setTab('codex')} />}
-        {review && <ShareSessionButton reviewId={review.id} />}
-        {workspaceToolbar}
-        {(review?.localReview || review?.source === 'local-worktree') && <button
-          className="rerun-cta" type="button" onClick={() => void refreshLocal(true)}
-          disabled={localRefreshing || scanning}
-          title="刷新本地文件、审查基线及同步状态,不会启动 agent"
-        >{localRefreshing ? '刷新中…' : '刷新本地代码'}</button>}
-        {/* 还没机审过就没有「上一轮」可带,重跑那颗按钮在这里指向一件不存在的事 */}
-        {!unscanned && (
-          <button
-            className="rerun-cta"
-            onClick={() => setRerunOpen(true)}
-            disabled={scanning}
-            title={scanning ? '本轮扫描进行中,结束后可重跑' : '带上本轮结论与你的处置,再跑一轮机审 (⌘E)'}
-          >
-            ↻ 重跑
-          </button>
-        )}
+        {workspaceToolbar ? workspaceToolbar(renderToolbar) : renderToolbar(null, null, null)}
         {/* 未机审的范围里,常驻 CTA 槽位让给「运行机审」—— 那才是这一屏此刻唯一的下一步;
             但手记的 finding 已经可提交时不能把出口收走,那时仍出提交按钮 */}
         {unscanned && ctaCount === 0 ? (
@@ -1231,6 +1227,7 @@ function ReviewPane({
           </button>
         )}
       </header>
+      {review && <CodexSessionButton hideTriggers reviewId={review.id} binding={codexBinding} onBinding={setCodexBinding} open={codexBindingOpen} onOpen={setCodexBindingOpen} onShowChat={() => setTab('codex')} />}
       {helpOpen && <KbdHelp onClose={() => setHelpOpen(false)} />}
       {rerunOpen && (
         <RerunPanel

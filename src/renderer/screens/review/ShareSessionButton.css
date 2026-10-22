@@ -7,3 +7,5 @@
 .share-session-popover input { box-sizing: border-box; width: 100%; margin-bottom: 12px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: 11px var(--mono); }
 .share-session-popover button { border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; background: var(--card); color: var(--text-dim); cursor: pointer; font: 12px var(--sans); }
 .share-session-popover .share-session-close { position: absolute; right: 8px; top: 8px; border: 0; padding: 0 4px; font-size: 18px; }
+
+.share-session-popover.share-session-floating { position: fixed; top: 64px; right: 16px; z-index: 1100; max-width: calc(100vw - 32px); }

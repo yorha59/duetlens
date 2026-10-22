@@ -1,0 +1,27 @@
+.review-toolbar { position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; -webkit-app-region: no-drag; }
+.review-toolbar-pinned { display: flex; align-items: center; gap: 6px; min-height: 32px; max-width: min(40vw, 680px); overflow-x: auto; }
+.review-toolbar-item { display: flex; align-items: center; gap: 3px; flex: none; }
+.review-toolbar-control { display: flex; align-items: center; gap: 4px; }
+.review-toolbar-control > button { white-space: nowrap; }
+.review-toolbar-grip { color: var(--text-faint); cursor: grab; user-select: none; font-size: 16px; padding: 4px 1px; }
+.review-toolbar-grip:active { cursor: grabbing; }
+.review-toolbar .review-toolbar-pin { border: 0; background: transparent; color: var(--text-faint); padding: 3px; font-size: 13px; cursor: pointer; }
+.review-toolbar-pin:hover { color: var(--text); }
+.review-toolbar-menu { position: absolute; top: calc(100% + 10px); right: 0; z-index: 100; width: 310px; max-width: calc(100vw - 24px); max-height: calc(100vh - 100px); overflow-y: auto; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 36px #0006; padding: 10px; }
+.review-toolbar-menu[hidden] { display: none; }
+.review-toolbar-menu-title { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text); padding: 2px 4px; }
+.review-toolbar-menu-title button { border: 0; background: transparent; color: var(--text-faint); font: inherit; cursor: pointer; }
+.review-toolbar-menu p { color: var(--text-faint); font-size: 11px; line-height: 1.6; margin: 6px 4px 10px; }
+.review-toolbar-menu .review-toolbar-item { padding: 4px 2px; border-radius: 6px; }
+.review-toolbar-menu .review-toolbar-item:hover { background: var(--surface-3); }
+.review-toolbar-menu .review-toolbar-control { flex: 1; min-width: 0; }
+.review-toolbar-menu .review-toolbar-control > button, .review-toolbar-menu .review-toolbar-control > span { flex: 1; }
+.review-toolbar-menu .rerun-cta { border-color: transparent; background: transparent; justify-content: flex-start; width: 100%; }
+.review-toolbar-drop { border: 1px dashed var(--border); border-radius: 6px; padding: 8px; color: var(--text-faint); font-size: 11px; white-space: nowrap; }
+.review-toolbar.dragging .review-toolbar-pinned, .review-toolbar.dragging .review-toolbar-menu { outline: 1px dashed var(--agent-2); }
+.rev-topbar .source { flex: 1; }
+.rev-topbar .source .nwo { flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+.rev-topbar .spacer { display: none; }
+@media (max-width: 1400px) { .rev-topbar { gap: 6px; } .rev-topbar .source .nwo { display: none; } }
+
+.review-toolbar-trigger { flex: none; }
