@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { lstat, mkdtemp, readFile, readlink, realpath, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -20,25 +20,50 @@ export class LocalWorktreeSource implements Source {
 
   async prepare(): Promise<PreparedSource> {
     await this.dispose();
-    const repo = await realpath((await run('git', ['-C', this.target.repoPath, 'rev-parse', '--show-toplevel'])).trim());
+    const repo = await realpath((await run('git', ['--no-optional-locks', '-C', this.target.repoPath, 'rev-parse', '--show-toplevel'])).trim());
     this.snapshot = await mkdtemp(path.join(os.tmpdir(), 'duetlens-worktree-'));
     try {
-      // shared clone 仅在临时库记录源对象目录,无需复制整个历史,也不改变原库的 HEAD/index。
-      await run('git', ['clone', '--quiet', '--shared', '--no-checkout', '--', repo, this.snapshot]);
+      // 不用 clone:对 blob:none 部分克隆,clone 会尝试打包历史中尚未下载的对象,
+      // 而 upload-pack 禁止懒加载,会错误地报「仓库损坏」。只借用现有对象目录,
+      // 缺少的必要对象由临时库自己的 promisor remote 按需获取,不扫描全部历史。
+      const format = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--show-object-format'])).trim();
+      await this.git(['init', '--quiet', `--object-format=${format}`]);
+      const objects = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--path-format=absolute', '--git-path', 'objects'])).trim();
+      await writeFile(path.join(this.snapshot, '.git/objects/info/alternates'), `${objects}\n`);
+      const shallow = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--path-format=absolute', '--git-path', 'shallow'])).trim();
+      try { await writeFile(path.join(this.snapshot, '.git/shallow'), await readFile(shallow)); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      const remotes = (await run('git', ['--no-optional-locks', '-C', repo, 'remote'])).trim().split('\n').filter(Boolean);
+      for (const remote of remotes) {
+        let promisor = '';
+        try { promisor = (await run('git', ['--no-optional-locks', '-C', repo, 'config', '--bool', '--get', `remote.${remote}.promisor`])).trim(); }
+        catch { /* 普通 remote 无此配置。 */ }
+        if (promisor !== 'true') continue;
+        const url = (await run('git', ['--no-optional-locks', '-C', repo, 'remote', 'get-url', remote])).trim();
+        await this.git(['config', `remote.${remote}.url`, url]);
+        await this.git(['config', `remote.${remote}.promisor`, 'true']);
+        await this.git(['config', `remote.${remote}.partialclonefilter`, 'blob:none']);
+      }
       let head = '';
       try {
-        head = (await run('git', ['-C', repo, 'rev-parse', '--verify', 'HEAD'])).trim();
+        head = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--verify', 'HEAD'])).trim();
       } catch {
         // 刚初始化、尚无首个提交的仓库也可审。
       }
-      this.base = this.target.baseRef && head
-        ? (await this.git(['merge-base', head, this.target.baseRef])).trim()
+      const baseCommit = this.target.baseRef && head
+        ? (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--verify', '--end-of-options', `${this.target.baseRef}^{commit}`])).trim()
+        : '';
+      this.base = baseCommit
+        ? (await this.git(['merge-base', head, baseCommit])).trim()
         : head || (await this.git(['hash-object', '-t', 'tree', '--stdin'], '')).trim();
-      if (head) await this.git(['read-tree', head]);
-      const tracked = await run('git', ['-C', repo, ...(head
+      if (head) {
+        await this.git(['update-ref', 'HEAD', head]);
+        await this.git(['read-tree', head]);
+      }
+      const tracked = await run('git', ['--no-optional-locks', '-C', repo, ...(head
         ? ['diff', '--no-ext-diff', '--name-only', '-z', head, '--']
         : ['ls-files', '--cached', '-z'])]);
-      const untracked = await run('git', ['-C', repo, 'ls-files', '--others', '--exclude-standard', '-z']);
+      const untracked = await run('git', ['--no-optional-locks', '-C', repo, 'ls-files', '--others', '--exclude-standard', '-z']);
       const files = new Set((tracked + untracked).split('\0').filter(Boolean));
       for (const file of files) {
         const absolute = path.join(repo, file);
