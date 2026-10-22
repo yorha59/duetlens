@@ -1,3 +1,4 @@
+import { imeComposing } from '../../keys';
 import { useState } from 'react';
 import { useDraftFlag } from './useDraftFlag';
 
@@ -27,7 +28,7 @@ export interface ComposerProps {
    * 发送;不会抛。失败原文由调用方连同目标线程一起收进待恢复列表 —— 只有它知道这一句
    * 最终发给了哪条讨论(空态下的第一句还会顺手建线程),见 ReviewScreen.onComposerSend。
    */
-  onSend: (text: string) => void | Promise<void>;
+  onSend: (text: string, askAgent?: boolean) => void | Promise<void>;
   /** 待恢复的原文;由屏持有,故框选发起失败的首问也能落到同一处 */
   unsent: UnsentDraft[];
   /** 一条待恢复原文的去向说明(切线程 / 原线程已不在);null = 就在当前线程,无需多说 */
@@ -53,11 +54,11 @@ export function Composer({
   // 先清空是因为发送可能挂着一整轮 turn(几十秒起步),不能一直锁着输入框;等待期间还能接着打下一句。
   // 因此失败时不能直接往框里塞:那句话可能早被新内容占着,多条同时失败更会互相覆盖 ——
   // 一律转成待恢复的一条,谁都不会凭空消失,放回来的时机交给用户。
-  const submit = () => {
+  const submit = (askAgent = false) => {
     const v = text.trim();
     if (!v || disabled) return;
     setText('');
-    void Promise.resolve(onSend(v)).catch(() => undefined);
+    void Promise.resolve(onSend(v, askAgent)).catch(() => undefined);
   };
 
   /** 把待恢复的原文放回输入框;框里已有内容就接在后面,不覆盖。切回原线程由调用方负责。 */
@@ -92,15 +93,16 @@ export function Composer({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             // Cmd/Ctrl+Enter 发送,裸 Enter 换行,避免多行追问时误发
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            if (!imeComposing(e) && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               submit();
             }
           }}
         />
         <div className="bar">
-          <button className="send" onClick={submit} disabled={disabled || !text.trim()}>
-            发送 ⌘↵
+          <button className="ask-agent" title="调用审核 agent 回复这条批注" onClick={() => submit(true)} disabled={disabled || !text.trim()}>询问 agent</button>
+          <button className="send" title="只保存批注,不会启动 agent" onClick={() => submit()} disabled={disabled || !text.trim()}>
+            保存批注 ⌘↵
           </button>
         </div>
       </div>

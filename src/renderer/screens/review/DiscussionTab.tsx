@@ -45,7 +45,7 @@ export interface DiscussionTabProps {
   /** composer 里正在打的字是否非空;透传自 Composer,供屏一级并入未保存判据 */
   onComposerDraftChange?: (hasDraft: boolean) => void;
   scanning: boolean;
-  onSend: (text: string) => void | Promise<void>;
+  onSend: (text: string, askAgent?: boolean) => void | Promise<void>;
   /** 新开一条不锚定代码的全局讨论;失败原样抛出,由按钮就地回显 */
   onStartGlobal: () => Promise<unknown>;
   onJumpToCode: (d: Discussion) => void;
@@ -401,8 +401,8 @@ export function DiscussionTab(props: DiscussionTabProps) {
       {/* 空态不禁用:直接开打就是一条无锚点的全局讨论(见 ReviewScreen.onComposerSend) */}
       <Composer
         disabled={false}
-        placeholder={active ? '追问 agent…' : '问 agent 关于本次改动的任何问题…'}
-        scope="◆ read-only sandbox · agent 仅阅读代码,不会改动"
+        placeholder={active ? '添加批注…' : '记录关于本次改动的批注…'}
+        scope="保存批注不会调用模型；仅点击「询问 agent」时启动审核 agent"
         onSend={props.onSend}
         unsent={props.unsent}
         targetNote={targetNote}

@@ -5777,3 +5777,6 @@ body.rz-dragging * {
 .rev-topbar > .rerun-cta { flex: none; white-space: nowrap; }
 
 .incremental-review-notice { padding: 8px 16px; font-size: 12px; color: var(--agent-2); border-bottom: 1px solid var(--border); background: var(--agent-soft); }
+
+.composer .ask-agent { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--card); color: var(--text-dim); font: 12px var(--sans); cursor: pointer; }
+.composer .ask-agent:disabled { opacity: .5; cursor: default; }

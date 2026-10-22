@@ -181,7 +181,7 @@ export interface DiffPaneProps {
   onTriage?: (finding: Finding, triage: Triage, reason?: string | null) => void;
   onUpdate?: (input: FindingEditInput) => void;
   /** 框选 / hover ＋ 发起 discussion:创建 user discussion 并发出首问 */
-  onStartDiscussion?: (anchor: DiscussionAnchor, text: string) => void | Promise<void>;
+  onStartDiscussion?: (anchor: DiscussionAnchor, text: string, askAgent?: boolean) => void | Promise<void>;
   /** 框选「记为 finding」:在锚点处填写后新增一条 manual finding */
   onAddFinding?: (anchor: DiscussionAnchor, draft: NewFindingDraft) => void | Promise<void>;
   /** 内联 finding 卡「追问」:切 Discussion 栏并选中该 finding 的承载线程 */
@@ -752,9 +752,9 @@ export function DiffPane(props: DiffPaneProps) {
               : undefined
           }
           compose={composeAt && composeAt.pick.anchor.file === f.path ? composeAt : null}
-          onSendCompose={async (text) => {
+          onSendCompose={async (text, askAgent) => {
             // 发起卡是这段原文唯一的落脚处,建线程成功了才关;失败由卡片自己报错并守住内容
-            if (composeAt) await onStartDiscussion?.(composeAt.pick.anchor, text);
+            if (composeAt) await onStartDiscussion?.(composeAt.pick.anchor, text, askAgent);
             setComposeAt(null);
           }}
           onCreateFinding={async (draft) => {
@@ -1113,7 +1113,7 @@ function DiffFileView({
   onToggleCollapsed: () => void;
   onAddThread?: (line: number, snippet: string) => void;
   compose: Compose | null;
-  onSendCompose: (text: string) => void | Promise<void>;
+  onSendCompose: (text: string, askAgent?: boolean) => void | Promise<void>;
   onCreateFinding: (draft: NewFindingDraft) => void | Promise<void>;
   onCancelCompose: () => void;
   onComposeDraftChange?: (hasDraft: boolean) => void;
@@ -1516,7 +1516,7 @@ function LineRow({
   const gutter = line.kind === 'add' ? '＋' : line.kind === 'del' ? '−' : '';
   const lineNo = line.kind === 'del' ? line.oldLine : line.newLine;
   const mark = line.newLine != null ? anchorByLine.get(line.newLine) : undefined;
-  const html = line.text === '' ? '&nbsp;' : highlightLine(line.text, lang);
+  const html = useMemo(() => line.text === '' ? '&nbsp;' : highlightLine(line.text, lang), [line.text, lang]);
   return (
     <tr
       className={`row${line.kind === 'add' ? ' add' : line.kind === 'del' ? ' del' : ''}`}

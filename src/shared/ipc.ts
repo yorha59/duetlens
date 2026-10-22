@@ -535,7 +535,8 @@ export interface DuetlensApi {
     /** 新建用户发起的 discussion;不传 anchor 即一条不锚定代码的全局讨论。 */
     addDiscussion(reviewId: string, anchor?: DiscussionAnchor | null): Promise<Discussion>;
     /** 就某条 discussion 向 agent 追问;返回 agent 回复(无文本时返回用户消息)。 */
-    sendMessage(reviewId: string, discussionId: string, text: string): Promise<Message>;
+    /** note 仅保存;agent（兼容缺省）才启动模型。 */
+    sendMessage(reviewId: string, discussionId: string, text: string, mode?: 'note' | 'agent'): Promise<Message>;
     /** 清空一条 discussion 的往来消息(finding 卡保留);经 `messages-cleared` 事件回推。 */
     clearDiscussion(reviewId: string, discussionId: string): Promise<void>;
     /** 该 review 名下 agent 提出的全部回写提案(pending / applied / skipped 都在)。 */

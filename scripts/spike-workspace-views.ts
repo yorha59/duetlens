@@ -54,6 +54,10 @@ async function main() {
         getFile: async (file) => readFile(path.join(repo, file), 'utf8'), dispose: async () => {},
       },
     });
+    const statusReview = { ...remote, localReview: true };
+    assert.equal((await workspace.syncStatus(statusReview)).pending, false);
+    await git(repo, 'commit', '--allow-empty', '-qm', 'same code, different commit');
+    assert.equal((await workspace.syncStatus(statusReview)).pending, false, 'equal code must show synced even when commit differs');
     const index = await readFile(path.join(repo, '.git/index'));
     await writeFile(path.join(repo, 'code.ts'), 'const base = 1;\nconst remote = 2;\nconst local = 3;\n');
     const state = await manager.switchWorkspace(remote.id, 'local');

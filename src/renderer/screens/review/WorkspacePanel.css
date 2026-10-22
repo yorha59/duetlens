@@ -29,3 +29,5 @@
 .workspace-apply { margin-top: 18px; border-top: 1px solid var(--border); }
 .workspace-toggle { flex-shrink: 0; }
 .workspace-toggle button { white-space: nowrap; }
+
+.workspace-sync-cta[data-state="synced"] { color: var(--green); }

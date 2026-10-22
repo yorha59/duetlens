@@ -530,14 +530,14 @@ function ReviewPane({
   //   · 已落库、只是没等到回复 —— 气泡得留着,失败记在该线程上就地显示。抛回去只会让人把
   //     线程里已经有的那句话再说一遍。
   const runSend = useCallback(
-    async (discussionId: string, text: string) => {
+    async (discussionId: string, text: string, askAgent = false) => {
       if (!reviewId) return;
       const pendingId = addPendingMessage(discussionId, text);
       const sendId = sendSeq.current++;
-      setSending((prev) => [...prev, { id: sendId, discussionId }]);
+      if (askAgent) setSending((prev) => [...prev, { id: sendId, discussionId }]);
       setReplyFailure((cur) => dropKey(cur, discussionId));
       try {
-        await window.duetlens.review.sendMessage(reviewId, discussionId, text);
+        await window.duetlens.review.sendMessage(reviewId, discussionId, text, askAgent ? 'agent' : 'note');
       } catch (e) {
         const failure = describeSendFailure((e as Error).message ?? String(e));
         if (!failure.sent) {
@@ -601,7 +601,7 @@ function ReviewPane({
   // 线程建成之后就不再让卡片等着了:首问要等完整一轮 turn 才有结果,为它悬着一张盖住 diff 的卡
   // 太久。此后的成败改在 Discussion 栏就地呈现,没发出去的原文进待恢复列表,一样丢不了。
   const onStartDiscussion = useCallback(
-    async (anchor: DiscussionAnchor, text: string) => {
+    async (anchor: DiscussionAnchor, text: string, askAgent = false) => {
       if (!reviewId) return;
       // diff 重拉未落定时中栏仍显示上一轮内容,此刻建锚会把旧行号记到已递增的新轮次上。
       // 拦下要说话:静默 return 会让发起卡当成功关掉,写好的问题就没了。
@@ -609,7 +609,8 @@ function ReviewPane({
       const d = await window.duetlens.review.addDiscussion(reviewId, anchor);
       setActiveDiscussionId(d.id);
       setTab('discussion');
-      void runSend(d.id, text).catch((e: unknown) => keepFailed(text, d.id, e));
+      if (askAgent) void runSend(d.id, text, true).catch((e: unknown) => keepFailed(text, d.id, e));
+      else await runSend(d.id, text);
     },
     [reviewId, diffReady, runSend, keepFailed],
   );
@@ -662,7 +663,7 @@ function ReviewPane({
   // 失败在这里就地收住,不抛回 composer:只有这里知道这一句最终发给了哪条线程,
   // 待恢复的原文必须带着那个 id(见 UnsentDraft.discussionId)。
   const onComposerSend = useCallback(
-    async (text: string) => {
+    async (text: string, askAgent = false) => {
       let target = activeDiscussionId;
       if (!target) {
         try {
@@ -673,7 +674,7 @@ function ReviewPane({
         }
         if (!target) return;
       }
-      await runSend(target, text).catch((e: unknown) => keepFailed(text, target, e));
+      await runSend(target, text, askAgent).catch((e: unknown) => keepFailed(text, target, e));
     },
     [activeDiscussionId, runSend, startGlobalDiscussion, keepFailed],
   );
@@ -880,27 +881,23 @@ function ReviewPane({
   // 「关掉这枚 tab 就没了」的东西上报给 App(拦截与确认在那一侧):没发出去的原文,
   // 加上两处 composer 里正在打的字。草稿文本留在各自组件里,只把「非空」这一位冒上来 ——
   // 抬文本会让这棵挂着整份 diff 的树跟着每次击键重渲染(见 useDraftFlag)。
-  const [composerDraft, setComposerDraft] = useState(false);
-  const [annotateDraft, setAnnotateDraft] = useState(false);
-  const hasUnsaved = unsent.length > 0 || composerDraft || annotateDraft;
+  // 草稿标记只供关 tab 时判断,不用 React state,避免首个字触发整份 diff 重绘。
+  const draftFlags = useRef({ composer: false, annotate: false, unsent: false });
   const notifyRef = useRef(onUnsavedChange);
   const reportedRef = useRef(false);
-  useEffect(() => {
-    notifyRef.current = onUnsavedChange;
-  });
-  useEffect(() => {
-    // 只在真值翻转时喊一次:App 侧每次渲染都换一个新回调,按值去重才不会每帧都上报。
-    if (reportedRef.current === hasUnsaved) return;
-    reportedRef.current = hasUnsaved;
-    notifyRef.current?.(hasUnsaved);
-  }, [hasUnsaved]);
-  useEffect(
-    () => () => {
-      // 卸载即这份原文随 tab 一起没了;拦截方不该继续挂着一条永远不会被撤销的「有未保存」。
-      if (reportedRef.current) notifyRef.current?.(false);
-    },
-    [],
-  );
+  useEffect(() => { notifyRef.current = onUnsavedChange; });
+  const reportDraft = useCallback((kind: 'composer' | 'annotate' | 'unsent', has: boolean) => {
+    draftFlags.current[kind] = has;
+    const flags = draftFlags.current;
+    const next = flags.composer || flags.annotate || flags.unsent;
+    if (reportedRef.current === next) return;
+    reportedRef.current = next;
+    notifyRef.current?.(next);
+  }, []);
+  const setComposerDraft = useCallback((has: boolean) => reportDraft('composer', has), [reportDraft]);
+  const setAnnotateDraft = useCallback((has: boolean) => reportDraft('annotate', has), [reportDraft]);
+  useEffect(() => { reportDraft('unsent', unsent.length > 0); }, [unsent.length, reportDraft]);
+  useEffect(() => () => { if (reportedRef.current) notifyRef.current?.(false); }, []);
 
   // scope 每次渲染都是新对象,直接进上面那个 effect 的依赖会让全局键 handler 每帧重注册
   const stepScope = scope?.onStep;
@@ -1498,7 +1495,7 @@ function RightPanel({
   replyFailure: Record<string, string>;
   unsent: UnsentDraft[];
   onRestoreUnsent: (d: UnsentDraft) => void;
-  onComposerSend: (text: string) => void | Promise<void>;
+  onComposerSend: (text: string, askAgent?: boolean) => void | Promise<void>;
   onComposerDraftChange: (hasDraft: boolean) => void;
   onStartGlobalDiscussion: () => Promise<string | null>;
   onJumpToCode: (d: Discussion) => void;

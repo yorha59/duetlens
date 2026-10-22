@@ -945,7 +945,16 @@ export class ReviewManager extends EventEmitter {
   }
 
   /** 向某条 discussion 追问;会话不在内存时先按 agentSessionId 续接。 */
-  async sendMessage(reviewId: string, discussionId: string, text: string): Promise<Message> {
+  async sendMessage(reviewId: string, discussionId: string, text: string, mode: 'note' | 'agent' = 'agent'): Promise<Message> {
+    if (mode !== 'note' && mode !== 'agent') throw new Error('未知批注模式');
+    if (mode === 'note') {
+      const discussion = this.store.getDiscussion(discussionId);
+      if (!this.store.getReview(reviewId) || !discussion || discussion.reviewId !== reviewId) throw new Error('讨论不属于本次审核');
+      if (!text.trim()) throw new Error('批注内容不能为空');
+      const message = this.store.addMessage(discussionId, 'user', text.trim());
+      this.forward({ reviewId, type: 'message', payload: message });
+      return message;
+    }
     if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
     const session = this.sessions.get(reviewId) ?? (await this.resumeSession(reviewId));
     this.touch(reviewId);

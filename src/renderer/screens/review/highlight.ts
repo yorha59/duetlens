@@ -80,15 +80,33 @@ export function langOf(path: string): string | null {
   return EXT_LANG[path.slice(dot + 1).toLowerCase()] ?? null;
 }
 
-/** 把一行代码高亮成 HTML(hljs 已转义)。lang 为 null 或出错时返回纯转义文本。 */
-export function highlightLine(text: string, lang: string | null): string {
-  if (lang == null) return escapeHtml(text);
-  try {
-    return hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
-  } catch {
-    return escapeHtml(text);
-  }
+/** 有上限的行缓存,整份 diff 重绘时不再重复跑语法正则。超长行用纯文本避免正则长任务。 */
+export function createLineHighlighter(compute: (text: string, lang: string | null) => string,
+  maxEntries = 16_000, maxChars = 4_000_000) {
+  const cache = new Map<string, string>();
+  let chars = 0;
+  return (text: string, lang: string | null): string => {
+    if (text.length > 4096) return escapeHtml(text);
+    const key = `${lang ?? ''}\0${text}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) { cache.delete(key); cache.set(key, cached); return cached; }
+    const html = compute(text, lang);
+    if (key.length + html.length > maxChars) return html;
+    cache.set(key, html); chars += key.length + html.length;
+    while (cache.size > maxEntries || chars > maxChars) {
+      const oldest = cache.entries().next().value;
+      if (!oldest) break;
+      chars -= oldest[0].length + oldest[1].length; cache.delete(oldest[0]);
+    }
+    return html;
+  };
 }
+
+export const highlightLine = createLineHighlighter((text, lang) => {
+  if (lang == null) return escapeHtml(text);
+  try { return hljs.highlight(text, { language: lang, ignoreIllegals: true }).value; }
+  catch { return escapeHtml(text); }
+});
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));

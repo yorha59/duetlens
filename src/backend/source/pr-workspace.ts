@@ -83,9 +83,16 @@ export class PrWorkspace {
   async syncStatus(review: Review) {
     if (!review.repoPath) return { pending: false };
     const info = await this.inspect(review, review.repoPath);
-    const dirty = await this.run('git', ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], info.repoPath);
-    const head = (await this.run('git', ['rev-parse', 'HEAD'], info.repoPath)).trim();
-    return { pending: !!dirty.length || head !== info.pr.head.sha };
+    const untracked = await this.run('git', ['ls-files', '--others', '--exclude-standard', '-z'], info.repoPath);
+    if (untracked.length) return { pending: true };
+    // 比较最终代码内容,不因本地额外的空提交或已抵消的改动误报差异。
+    try {
+      await this.run('git', ['--no-optional-locks', 'diff', '--no-ext-diff', '--no-textconv', '--quiet', info.pr.head.sha, '--'], info.repoPath);
+      return { pending: false };
+    } catch (error) {
+      if ((error as { code?: number }).code === 1) return { pending: true };
+      throw new Error('无法比较本地代码和远端版本,请先预览同步或更新本地远端提交');
+    }
   }
 
   async verifySyncedReview(review: Review, commit: string, reviewedTree: string) {

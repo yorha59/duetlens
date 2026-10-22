@@ -117,7 +117,7 @@ export function App({
    * 哪几枚 tab 里还有「关掉就没了」的东西(未发出的原文)。由各 ReviewScreen 上报 ——
    * 那些草稿一个字都不落库,关 tab 的人看不见它们还在。
    */
-  const [unsaved, setUnsaved] = useState<Record<string, boolean>>({});
+  const unsaved = useRef<Record<string, boolean>>({});
   /**
    * 每枚 tab 屏上正在看的那条 review(PR 容器 → 它的某个提交范围)。tab 认的始终是容器,
    * 而提交/导出与重跑都作用在**看着的那一份**上 —— 各范围的 findings 与 diff 基准不互通。
@@ -267,7 +267,7 @@ export function App({
   const onCloseTab = (id: string, force = false) => {
     // 有没发出去的原文就先拦一下,把「仍然关闭」摆在同一句话里 —— 用弹窗问一遍太重,
     // 而这批草稿一个字都不落库,关掉就真没了
-    if (!force && unsaved[id]) {
+    if (!force && unsaved.current[id]) {
       setNotice({
         text: '这枚 tab 里还有没发出去的原文,关掉就没了',
         action: { label: '仍然关闭', onRun: () => onCloseTab(id, true) },
@@ -283,7 +283,7 @@ export function App({
     // 关掉最后一枚:review 屏此刻什么都没有,回入口(rail 上的「当前审核」也随之不可达)
     if (next.tabs.length === 0) setScreen('entry');
     setEverActive((prev) => prev.filter((x) => x !== id));
-    setUnsaved((prev) => (id in prev ? Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)) : prev));
+    delete unsaved.current[id];
     // 在跑的时候关掉最容易被读成「我把它停了」,给一句话说清,并留一步回头路
     if (meta[id]?.status === 'scanning')
       setNotice({
@@ -412,9 +412,7 @@ export function App({
               scopeRequest={scopeRequest?.reviewId === t.reviewId ? scopeRequest : null}
               onScopeHandled={() => setScopeRequest(null)}
               onOpenReview={openReview}
-              onUnsavedChange={(has) =>
-                setUnsaved((prev) => (!!prev[t.reviewId] === has ? prev : { ...prev, [t.reviewId]: has }))
-              }
+              onUnsavedChange={(has) => { unsaved.current[t.reviewId] = has; }}
               onScopeChange={(scopeReviewId) =>
                 setScopeIds((prev) =>
                   prev[t.reviewId] === scopeReviewId ? prev : { ...prev, [t.reviewId]: scopeReviewId },

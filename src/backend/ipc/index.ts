@@ -169,8 +169,8 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   ipcMain.handle(IpcChannels.reviewAddDiscussion, (_e, reviewId: string, anchor?: DiscussionAnchor | null) =>
     manager.addUserDiscussion(reviewId, anchor),
   );
-  ipcMain.handle(IpcChannels.reviewSendMessage, (_e, reviewId: string, discussionId: string, text: string) =>
-    manager.sendMessage(reviewId, discussionId, text),
+  ipcMain.handle(IpcChannels.reviewSendMessage, (_e, reviewId: string, discussionId: string, text: string, mode?: 'note' | 'agent') =>
+    manager.sendMessage(reviewId, discussionId, text, mode),
   );
   ipcMain.handle(IpcChannels.reviewClearDiscussion, (_e, reviewId: string, discussionId: string) =>
     manager.clearDiscussion(reviewId, discussionId),

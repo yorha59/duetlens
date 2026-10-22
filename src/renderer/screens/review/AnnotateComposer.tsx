@@ -23,10 +23,10 @@ export interface AnnotateComposerProps {
   label: string;
   snippet: string;
   /**
-   * 提问态发送:创建一条 user discussion 并向 codex 发出首问。
+   * 默认仅保存批注;显式 askAgent 才向审核 agent 发出首问。
    * resolve 才关卡片 —— 失败要原样抛出,这张卡是原文唯一的落脚处,关掉就没了。
    */
-  onSend: (text: string) => void | Promise<void>;
+  onSend: (text: string, askAgent?: boolean) => void | Promise<void>;
   /** finding 态提交:经 review:add-finding 落库(origin=manual);同 onSend,resolve 才关卡片 */
   onCreate: (draft: NewFindingDraft) => void | Promise<void>;
   onCancel: () => void;
@@ -94,7 +94,7 @@ export function AnnotateComposer({
 
   // 两态都不就地关卡片:落库成功了才由上层关掉(见 DiffPane 的 onSendCompose / onCreateFinding),
   // 失败就留在原地报错并守住已写的内容 —— 这张卡是它唯一的落脚处。
-  const submit = async () => {
+  const submit = async (askAgent = false) => {
     if (!canSubmit || sending) return;
     setSending(true);
     setError(null);
@@ -107,7 +107,7 @@ export function AnnotateComposer({
             body: text.trim(),
             suggestion: hasSugg ? suggestion : null,
           })
-        : onSend(text.trim()));
+        : onSend(text.trim(), askAgent));
     } catch (e) {
       setError(describeSendFailure((e as Error).message ?? String(e)).raw);
       setSending(false);
@@ -215,9 +215,10 @@ export function AnnotateComposer({
               </button>
             ) : (
               <button className="send" onClick={() => void submit()} disabled={!canSubmit || sending}>
-                {sending ? '发送中…' : '发送给 agent'} <span className="kbd">⌘↵</span>
+                {sending ? '保存中…' : '保存批注'} <span className="kbd">⌘↵</span>
               </button>
             )}
+            {!up && <button className="cancel" title="调用审核 agent 回复这条批注" onClick={() => void submit(true)} disabled={!canSubmit || sending}>询问 agent</button>}
             <button className="cancel" onClick={onCancel}>
               取消 <span className="kbd">Esc</span>
             </button>
