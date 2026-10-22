@@ -7,6 +7,12 @@ export function OpenFileButton({ reviewId, path, hasLocalRepo, line }: { reviewI
   const [editors, setEditors] = useState<LocalEditor[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (!opened) return;
+    const timer = setTimeout(() => setOpened(false), 1800);
+    return () => clearTimeout(timer);
+  }, [opened]);
   useEffect(() => {
     let alive = true;
     editorsRequest ??= window.duetlens.editor.list().catch((error) => {
@@ -21,10 +27,12 @@ export function OpenFileButton({ reviewId, path, hasLocalRepo, line }: { reviewI
   const disabled = busy || !hasLocalRepo || !editor;
   const open = async (choose: boolean) => {
     setError('');
+    setOpened(false);
     setBusy(true);
     try {
       const result = await window.duetlens.editor.openFile(reviewId, path, choose, line);
       if (!result.ok) setError(result.message);
+      else if (!choose) setOpened(true);
     } catch (error) { setError((error as Error).message); }
     finally { setBusy(false); }
   };
@@ -32,7 +40,7 @@ export function OpenFileButton({ reviewId, path, hasLocalRepo, line }: { reviewI
     <span className="file-editor-action">
       <span className="file-editor-buttons">
         <button type="button" className="fh-btn" disabled={disabled} title={hint} onClick={() => void open(false)}>
-          <span aria-hidden="true">↗</span> {editor ? `在 ${editor.name} 中打开` : '编辑器打开'}
+          <span aria-hidden="true">↗</span> {busy ? '正在打开…' : opened ? '已打开' : editor ? `在 ${editor.name} 中打开` : '编辑器打开'}
         </button>
         <button type="button" className="fh-btn file-editor-more" disabled={disabled} title="打开方式 · 选择本机编辑器" aria-label={`打开方式: ${path}`} onClick={() => void open(true)}>▾</button>
       </span>

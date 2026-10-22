@@ -77,4 +77,9 @@ export async function openEditorFile(editor: LocalEditor & { appPath: string }, 
   // 不经 shell 拼接,文件名中的空格、引号与选项前缀都按普通路径处理。
   const launch = editorLaunch(editor, file, line);
   await exec(launch.command, launch.args, { env: launch.env, timeout: 30_000 });
+  if (process.platform === 'darwin' && launch.command !== '/usr/bin/open') {
+    // CLI 可成功切换文件和行号,却未激活 macOS 窗口。单独激活应用,不再传文件,
+    // 避免第二次打开重置刚设置的光标位置;激活失败也必须反馈给调用方。
+    await exec('/usr/bin/open', ['-a', editor.appPath], { timeout: 10_000 });
+  }
 }
