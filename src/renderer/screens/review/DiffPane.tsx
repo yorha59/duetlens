@@ -16,6 +16,7 @@ import { AnnotateComposer, type NewFindingDraft } from './AnnotateComposer';
 import { PencilIcon } from './PencilIcon';
 import { SelectionPopover } from './SelectionPopover';
 import { DiffFindBar } from './DiffFindBar';
+import { CopyFilePathButton } from './CopyFilePathButton';
 import { primaryModifier } from '../../keys';
 import { useIsActiveTab } from '../../review/TabVisibility';
 import {
@@ -1181,6 +1182,7 @@ function DiffFileView({
           </div>
         </div>
         <div className="fh-meta">
+          <CopyFilePathButton path={file.path} />
           {findings.length > 0 && <span className="fh-fnd">⚑ {findings.length}</span>}
           {!file.binary && (
             <span className="fh-num">

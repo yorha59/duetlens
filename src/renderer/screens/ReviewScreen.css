@@ -1483,6 +1483,38 @@ body.rz-dragging * {
   align-items: center;
   gap: 10px;
 }
+.fh-copy-path {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.fh-copy-path:hover,
+.fh-copy-path:focus-visible {
+  background: var(--surface-2);
+  border-color: var(--agent-line);
+  color: var(--text);
+}
+.fh-copy-path.on {
+  color: var(--add);
+}
+.fh-copy-path .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .file-header .fh-fnd {
   display: flex;
   align-items: center;
