@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { workspaceAnchorVisible } from '@shared/workspace-anchors';
 import type { Review } from '@shared/domain';
 import { parseUnifiedDiff } from '@shared/diff';
 import type { ReviewStore } from '../db/review-store';
@@ -44,7 +45,7 @@ export class SharedSessionReader {
     const head = this.head(review);
     const { diff, paths } = this.files(review);
     const missing = new Set(review.workspaceMissingFiles ?? []);
-    const findings = this.store.listFindings(id).filter((finding) => !missing.has(finding.file));
+    const findings = this.store.listFindings(id).filter((finding) => workspaceAnchorVisible(finding, review, diff));
     return {
       kind: 'duetlens.shared-review', schemaVersion: 1, generatedAt: new Date().toISOString(),
       access: { localOnly: true, readOnly: true, liveComments: true },
@@ -55,7 +56,7 @@ export class SharedSessionReader {
         round: review.currentRound, head, reviewedHead: this.store.getRound(id, review.currentRound)?.headSha ?? null, baseRef: review.localBaseRef ?? review.baseRef, status: review.status,
         summary: review.summaryBody, summaryFiles: review.summaryFiles.filter((file) => !missing.has(file.path)), updatedAt: review.updatedAt },
       findings,
-      discussions: this.store.listDiscussions(id).filter((discussion) => !discussion.file || !missing.has(discussion.file)).map((discussion) => ({ ...discussion,
+      discussions: this.store.listDiscussions(id).filter((discussion) => workspaceAnchorVisible(discussion, review, diff)).map((discussion) => ({ ...discussion,
         findingId: findings.find((finding) => finding.discussionId === discussion.id)?.id ?? null,
         messages: this.store.listMessages(discussion.id),
       })),

@@ -24,11 +24,11 @@ export const GH_EVENT_API: Record<GhReviewEvent, 'COMMENT' | 'REQUEST_CHANGES' |
   approve: 'APPROVE',
 };
 
-/** 一条 inline 行评论(锚在新增侧 RIGHT,行号取 finding 的新侧行)。 */
+/** 一条 inline 行评论:新增侧 RIGHT,删除侧 LEFT。 */
 export interface PrReviewComment {
   path: string;
   line: number;
-  side: 'RIGHT';
+  side: 'RIGHT' | 'LEFT';
   body: string;
 }
 
@@ -75,8 +75,11 @@ export function anchorLineIndex(diff: DiffFile[]): (f: Finding) => string | unde
   const byKey = new Map<string, string>();
   for (const file of diff)
     for (const hunk of file.hunks)
-      for (const l of hunk.lines) if (l.newLine != null) byKey.set(`${file.path}:${l.newLine}`, l.text);
-  return (f) => byKey.get(`${f.file}:${f.line}`);
+      for (const l of hunk.lines) {
+        if (l.newLine != null) byKey.set(`${file.path}:new:${l.newLine}`, l.text);
+        if (l.oldLine != null) byKey.set(`${file.path}:old:${l.oldLine}`, l.text);
+      }
+  return (f) => byKey.get(`${f.file}:${f.side ?? 'new'}:${f.line}`);
 }
 
 /** 一条 finding → inline 评论正文:标题 + 正文 + 可选 suggestion 块。 */
@@ -120,7 +123,7 @@ export function buildPrReviewPayload(
   const comments: PrReviewComment[] = anchored.map((f) => ({
     path: f.file,
     line: f.line,
-    side: 'RIGHT',
+    side: f.side === 'old' ? 'LEFT' : 'RIGHT',
     body: commentBody(f, review.currentRound, anchorLineOf(f)),
   }));
 
@@ -183,33 +186,34 @@ export const isSubmittable = (f: Finding, currentRound: number): boolean =>
 // ---- 行锚点存活预判(本地据最新 diff 判断,GitHub 422 不告知是哪条)----
 
 /** 遍历某文件所有 hunk 里可作为 RIGHT 侧评论的新侧行号(add/context 行)。 */
-function liveLines(file: string, diff: DiffFile[]): number[] {
+function liveLines(file: string, diff: DiffFile[], side: 'old' | 'new' = 'new'): number[] {
   const df = diff.find((f) => f.path === file);
   if (!df) return [];
   const out: number[] = [];
   for (const h of df.hunks) {
     for (const l of h.lines) {
-      if ((l.kind === 'add' || l.kind === 'context') && l.newLine != null) out.push(l.newLine);
+      const number = side === 'old' ? l.oldLine : l.newLine;
+      if (number != null) out.push(number);
     }
   }
   return out;
 }
 
 /** (path,line) 是否是最新 diff 里合法的 RIGHT 侧行评论位置。diff 为空时不预判(返回 true 放行)。 */
-export function isAnchorLive(file: string, line: number, diff: DiffFile[]): boolean {
+export function isAnchorLive(file: string, line: number, diff: DiffFile[], side: 'old' | 'new' = 'new'): boolean {
   if (!file || line <= 0) return false;
   if (diff.length === 0) return true; // 无 diff 可比对时不误报,交由 GitHub 裁决
-  return liveLines(file, diff).includes(line);
+  return liveLines(file, diff, side).includes(line);
 }
 
 /** 待提交 + 有锚点 + 锚点不在最新 diff 新增侧 → 会让整份 PR review 被 422 拒。 */
 export function isStaleAnchor(f: Finding, diff: DiffFile[], currentRound: number): boolean {
-  return isSubmittable(f, currentRound) && hasAnchor(f) && !isAnchorLive(f.file, f.line, diff);
+  return isSubmittable(f, currentRound) && hasAnchor(f) && !isAnchorLive(f.file, f.line, diff, f.side);
 }
 
 /** 同文件里离原行最近的可评论新侧行号(改锚点用);无可锚行返回 null。 */
-export function nearestLiveLine(file: string, line: number, diff: DiffFile[]): number | null {
-  const lines = liveLines(file, diff);
+export function nearestLiveLine(file: string, line: number, diff: DiffFile[], side: 'old' | 'new' = 'new'): number | null {
+  const lines = liveLines(file, diff, side);
   if (lines.length === 0) return null;
   return lines.reduce((best, l) => (Math.abs(l - line) < Math.abs(best - line) ? l : best), lines[0]);
 }

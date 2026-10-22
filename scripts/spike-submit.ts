@@ -309,6 +309,8 @@ async function main() {
         return { status: 'success', url: 'https://gh/x#r1', submittedCount: 2 };
       },
     };
+    // 并发锁只测提交在途;不让 suggestion 的实时 diff 网络请求影响时序。
+    store.updateFinding({ findingId: f1.id, suggestion: null });
     const manager = new ReviewManager(store, undefined, { submitter: slow });
 
     const first = manager.submitReview(review.id, { event: 'comment', body: '第一次' });

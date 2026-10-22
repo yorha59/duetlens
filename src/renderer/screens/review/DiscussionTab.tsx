@@ -223,7 +223,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
     return items;
   }, [activeMsgs, activeStreams]);
   const anchorLabel = active?.file
-    ? `${basename(active.file)}:${active.line ?? ''}${active.lineEnd ? `–${active.lineEnd}` : ''}`
+    ? `${basename(active.file)}:${active.line ?? ''}${active.lineEnd ? `–${active.lineEnd}` : ''}${active.side === 'old' ? '（删除前）' : ''}`
     : null;
 
   return (
@@ -246,7 +246,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
                 {f && <span className={`di-sev sev-${f.severity}`} />}
                 {d.file && (
                   <span className="di-anchor mono">
-                    {basename(d.file)}:{d.line}
+                    {basename(d.file)}:{d.line}{d.side === 'old' ? '（删除前）' : ''}
                   </span>
                 )}
               </button>
@@ -265,7 +265,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
                   {active.file}
                   <span className="lnref">
                     :{active.line}
-                    {active.lineEnd ? `–${active.lineEnd}` : ''}
+                    {active.lineEnd ? `–${active.lineEnd}` : ''}{active.side === 'old' ? '（删除前）' : ''}
                   </span>
                   {rootFinding?.category ? ` · ${rootFinding.category}` : ''}
                 </div>

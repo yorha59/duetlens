@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
+import { workspaceAnchorVisible } from '@shared/workspace-anchors';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewRound } from '@shared/domain';
 import type { DiffFile } from '@shared/diff';
 import type { AgentEvent, TokenUsage } from '@shared/agent-events';
@@ -458,9 +459,8 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
     };
   }, [reviewId]);
 
-  const missing = useMemo(() => new Set(review?.workspaceMissingFiles ?? []), [review?.workspaceMissingFiles]);
-  const visibleFindings = useMemo(() => findings.filter((finding) => !missing.has(finding.file)), [findings, missing]);
-  const visibleDiscussions = useMemo(() => discussions.filter((discussion) => !discussion.file || !missing.has(discussion.file)), [discussions, missing]);
+  const visibleFindings = useMemo(() => findings.filter((finding) => workspaceAnchorVisible(finding, review, diff)), [findings, review, diff]);
+  const visibleDiscussions = useMemo(() => discussions.filter((discussion) => workspaceAnchorVisible(discussion, review, diff)), [discussions, review, diff]);
   return {
     review,
     findings: visibleFindings,

@@ -88,13 +88,15 @@ function useLocateEffect(active: boolean, run: () => void, deps: React.Dependenc
 /** diff 内锚点:发起 discussion / 追问 codex 时携带的选区信息 */
 interface AnchorPick {
   anchor: DiscussionAnchor;
-  /** 内联 composer 插入位置(新侧行号) */
+  /** 内联 composer 插入位置:新侧为正数,删除侧为负数 */
   placeLine: number;
   label: string;
   snippet: string;
 }
 
-/** 某新侧行上的锚点标记(gutter 圆点):agent(codex finding)/ human(用户讨论·手动 finding)。 */
+/** 某行上的锚点标记(gutter 圆点):agent(codex finding)/ human(用户讨论·手动 finding)。 */
+const anchorKey = (line: number, side?: 'old' | 'new') => side === 'old' ? -line : line;
+
 interface AnchorMark {
   tone: 'agent' | 'human';
   finding?: Finding;
@@ -632,13 +634,19 @@ export function DiffPane(props: DiffPaneProps) {
         return;
       }
       const rows = rowsBetween(startRow, endRow);
+      const selectedOldCell = (node: Node | null) => {
+        const element = node?.nodeType === Node.ELEMENT_NODE ? node as Element : node?.parentElement;
+        const cell = element?.closest('td.src');
+        return !!cell?.closest('table.split') && !cell.classList.contains('new');
+      };
+      const side = (selectedOldCell(selection.anchorNode) && selectedOldCell(selection.focusNode)) || rows.every((r) => r.getAttribute('data-old-line') && !r.getAttribute('data-new-line')) ? 'old' : 'new';
       const withLine = rows
-        .map((r) => ({ r, line: rowNewLine(r) }))
+        .map((r) => ({ r, line: side === 'old' ? Number(r.getAttribute('data-old-line')) || null : rowNewLine(r) }))
         .filter((x): x is { r: HTMLElement; line: number } => x.line != null);
       const fileEl = startRow.closest('.diff-file') as HTMLElement | null;
       const file = fileEl?.getAttribute('data-path') ?? null;
       if (!file || withLine.length === 0) {
-        setSel(null); // 纯删除行 / 越界:无新侧行不可锚定
+        setSel(null); // 空选区 / 越界不可锚定
         return;
       }
       const first = withLine[0].line;
@@ -646,8 +654,8 @@ export function DiffPane(props: DiffPaneProps) {
       const label = `${basename(file)}:${first === last ? first : `${first}–${last}`}`;
       const snippet = snippetOf(withLine[withLine.length - 1].r);
       const pick: AnchorPick = {
-        anchor: { file, line: first, lineEnd: first === last ? null : last },
-        placeLine: last,
+        anchor: { file, line: first, lineEnd: first === last ? null : last, side },
+        placeLine: anchorKey(last, side),
         label,
         snippet,
       };
@@ -748,11 +756,11 @@ export function DiffPane(props: DiffPaneProps) {
           onExpand={(gap) => expand(f.path, gap)}
           onAddThread={
             canStart
-              ? (line, snippet) =>
+              ? (line, snippet, side = 'new') =>
                   startCompose({
-                    anchor: { file: f.path, line, lineEnd: null },
-                    placeLine: line,
-                    label: `${basename(f.path)}:${line}`,
+                    anchor: { file: f.path, line, lineEnd: null, side },
+                    placeLine: side === 'old' ? -line : line,
+                    label: `${basename(f.path)}:${line}${side === 'old' ? '（删除前）' : ''}`,
                     snippet,
                   })
               : undefined
@@ -953,7 +961,7 @@ function ContextTable({
   lines: DiffLine[];
   view: DiffView;
   lang: string | null;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   anchorByLine: Map<number, AnchorMark>;
   onAnchorClick: (mark: AnchorMark) => void;
 }) {
@@ -1027,7 +1035,7 @@ function GapExpander({
   loading: boolean;
   revealed: number;
   onExpand: () => void;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   anchorByLine: Map<number, AnchorMark>;
   onAnchorClick: (mark: AnchorMark) => void;
 }) {
@@ -1121,7 +1129,7 @@ function DiffFileView({
   collapseOnViewed: boolean;
   onToggleViewed: () => void;
   onToggleCollapsed: () => void;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   compose: Compose | null;
   onSendCompose: (text: string, askAgent?: boolean) => void | Promise<void>;
   onCreateFinding: (draft: NewFindingDraft) => void | Promise<void>;
@@ -1133,10 +1141,13 @@ function DiffFileView({
   revealOf: (gapKey: string) => number;
   onExpand: (gap: Gap) => void;
 }) {
-  // 新侧存在的行号集合;锚点不在其中的 finding 归 off-diff
+  // 正数索引新侧,负数索引删除侧;同号的左右行不会互相串线。
   const newLines = useMemo(() => {
     const s = new Set<number>();
-    for (const h of file.hunks) for (const l of h.lines) if (l.newLine != null) s.add(l.newLine);
+    for (const h of file.hunks) for (const l of h.lines) {
+      if (l.newLine != null) s.add(l.newLine);
+      if (l.kind === 'del' && l.oldLine != null) s.add(-l.oldLine);
+    }
     return s;
   }, [file]);
 
@@ -1144,14 +1155,14 @@ function DiffFileView({
   const anchorByLine = useMemo(() => {
     const m = new Map<number, AnchorMark>();
     for (const f of findings) {
-      if (!newLines.has(f.line)) continue;
+      if (!newLines.has(anchorKey(f.line, f.side))) continue;
       const tone = f.origin === 'agent' ? 'agent' : 'human';
-      const prev = m.get(f.line);
-      if (!prev || (tone === 'agent' && prev.tone !== 'agent')) m.set(f.line, { tone, finding: f });
+      const prev = m.get(anchorKey(f.line, f.side));
+      if (!prev || (tone === 'agent' && prev.tone !== 'agent')) m.set(anchorKey(f.line, f.side), { tone, finding: f });
     }
     for (const d of discussions) {
-      if (d.line == null || !newLines.has(d.line) || m.has(d.line)) continue;
-      m.set(d.line, { tone: 'human', discussionId: d.id });
+      if (d.line == null || !newLines.has(anchorKey(d.line, d.side)) || m.has(anchorKey(d.line, d.side))) continue;
+      m.set(anchorKey(d.line, d.side), { tone: 'human', discussionId: d.id });
     }
     return m;
   }, [findings, discussions, newLines]);
@@ -1166,14 +1177,14 @@ function DiffFileView({
       : '标记已看';
 
   const lang = useMemo(() => langOf(file.path), [file.path]);
-  const offDiff = findings.filter((f) => !newLines.has(f.line));
-  // 锚定 findings 按新侧行号分组
+  const offDiff = findings.filter((f) => !newLines.has(anchorKey(f.line, f.side)));
+  // 锚定 findings 按内部锚点键分组
   const byLine = new Map<number, Finding[]>();
   for (const f of findings) {
-    if (!newLines.has(f.line)) continue;
-    const arr = byLine.get(f.line) ?? [];
+    if (!newLines.has(anchorKey(f.line, f.side))) continue;
+    const arr = byLine.get(anchorKey(f.line, f.side)) ?? [];
     arr.push(f);
-    byLine.set(f.line, arr);
+    byLine.set(anchorKey(f.line, f.side), arr);
   }
 
   // 新增/删除文件整份即在 diff 里(无 diff 外上下文),不给展开控件以免留下点了无效的空条。
@@ -1202,7 +1213,7 @@ function DiffFileView({
       // 锚点变了要重挂:同一张卡换个位置继续用会把上一处的草稿带过去。
       // 起止行都要进 key —— 只认落位行的话,末行相同、起点不同的两次框选会共用实例,
       // 草稿留在原地却提交到新锚点
-      key={`${compose.pick.anchor.file}:${compose.pick.anchor.line}:${compose.pick.anchor.lineEnd ?? ''}`}
+      key={`${compose.pick.anchor.file}:${compose.pick.anchor.side}:${compose.pick.anchor.line}:${compose.pick.anchor.lineEnd ?? ''}`}
       label={compose.pick.label}
       snippet={compose.pick.snippet}
       onSend={onSendCompose}
@@ -1329,7 +1340,7 @@ function DiffFileView({
 
 interface CardSeg<T> {
   rows: T[];
-  /** 该段结尾命中的新侧行号(用于取 finding 卡 / 插 composer);无则 null */
+  /** 该段结尾命中的内部锚点键(用于取 finding 卡 / 插 composer);无则 null */
   endAnchor: number | null;
 }
 
@@ -1379,12 +1390,15 @@ function HunkView({
   onTriage?: (finding: Finding, triage: Triage, reason?: string | null) => void;
   onUpdate?: (input: FindingEditInput) => void;
   onDiscussFinding?: (finding: Finding) => void;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   composeLine: number | null;
   composeNode: React.ReactNode;
 }) {
   const textByNewLine = new Map<number, string>();
-  for (const l of hunk.lines) if (l.newLine != null) textByNewLine.set(l.newLine, l.text);
+  for (const l of hunk.lines) {
+    if (l.newLine != null) textByNewLine.set(l.newLine, l.text);
+    if (l.kind === 'del' && l.oldLine != null) textByNewLine.set(-l.oldLine, l.text);
+  }
 
   const cards = (line: number | null) =>
     (line != null ? byLine.get(line) ?? [] : []).map((f) => (
@@ -1392,7 +1406,7 @@ function HunkView({
         key={f.id}
         finding={f}
         focused={f.id === focusFindingId}
-        originalLine={textByNewLine.get(f.line)}
+        originalLine={textByNewLine.get(anchorKey(f.line, f.side))}
         currentRound={currentRound}
         onTriage={onTriage}
         onUpdate={onUpdate}
@@ -1410,7 +1424,7 @@ function HunkView({
       </div>
       {view === 'split'
         ? segmentByAnchor(
-            toSplitRows(hunk.lines).map((r) => ({ row: r, anchor: r.right?.newLine ?? null })),
+            toSplitRows(hunk.lines).map((r) => ({ row: r, anchor: r.left?.kind === 'del' && r.left.oldLine != null && shouldBreak(-r.left.oldLine) ? -r.left.oldLine : r.right?.newLine ?? null })),
             shouldBreak,
           ).map((seg, i) => (
             <div key={i}>
@@ -1431,11 +1445,12 @@ function HunkView({
                 </table>
               </div>
               {cards(seg.endAnchor)}
-              {seg.endAnchor === composeLine && composeNode}
+              {view === 'split' && seg.endAnchor != null && seg.endAnchor < 0 && cards((seg.rows.at(-1) as SplitPair | undefined)?.right?.newLine ?? null)}
+              {(seg.endAnchor === composeLine || (view === 'split' && seg.endAnchor != null && seg.endAnchor < 0 && (seg.rows.at(-1) as SplitPair | undefined)?.right?.newLine === composeLine)) && composeNode}
             </div>
           ))
         : segmentByAnchor(
-            hunk.lines.map((l) => ({ row: l, anchor: l.newLine })),
+            hunk.lines.map((l) => ({ row: l, anchor: l.newLine ?? (l.oldLine != null ? -l.oldLine : null) })),
             shouldBreak,
           ).map((seg, i) => (
             <div key={i}>
@@ -1492,10 +1507,10 @@ function toSplitRows(lines: DiffLine[]): SplitPair[] {
 }
 
 /**
- * hover 才显影的行内批注 ✎(仅新侧行);与框选浮层同一枚字形与配色,两条路径开的是同一张卡。
+ * hover 才显影的行内批注 ✎(新增侧与删除侧);与框选浮层同一枚字形与配色,两条路径开的是同一张卡。
  * 挂在行号格里:代码格会随长行横滚,贴在其右缘的按钮要滑到行尾才够得着。
  */
-function AddThread({ line, text, onAddThread }: { line: number; text: string; onAddThread?: (line: number, snippet: string) => void }) {
+function AddThread({ line, text, onAddThread, side = 'new' }: { side?: 'old' | 'new'; line: number; text: string; onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void }) {
   if (!onAddThread) return null;
   return (
     <button
@@ -1504,7 +1519,7 @@ function AddThread({ line, text, onAddThread }: { line: number; text: string; on
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => {
         e.stopPropagation();
-        onAddThread(line, text.trim().slice(0, 60));
+        onAddThread(line, text.trim().slice(0, 60), side);
       }}
     >
       <PencilIcon />
@@ -1521,22 +1536,23 @@ function LineRow({
 }: {
   line: DiffLine;
   lang: string | null;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   anchorByLine: Map<number, AnchorMark>;
   onAnchorClick: (mark: AnchorMark) => void;
 }) {
   const gutter = line.kind === 'add' ? '＋' : line.kind === 'del' ? '−' : '';
   const lineNo = line.kind === 'del' ? line.oldLine : line.newLine;
-  const mark = line.newLine != null ? anchorByLine.get(line.newLine) : undefined;
+  const mark = lineNo != null ? anchorByLine.get(anchorKey(lineNo, line.kind === 'del' ? 'old' : 'new')) : undefined;
   const html = useMemo(() => line.text === '' ? '&nbsp;' : highlightLine(line.text, lang), [line.text, lang]);
   return (
     <tr
       className={`row${line.kind === 'add' ? ' add' : line.kind === 'del' ? ' del' : ''}`}
       data-new-line={line.newLine ?? undefined}
+      data-old-line={line.kind === 'del' ? line.oldLine ?? undefined : undefined}
     >
       <td className="ln">
         {lineNo}
-        {line.newLine != null && <AddThread line={line.newLine} text={line.text} onAddThread={onAddThread} />}
+        {lineNo != null && <AddThread line={lineNo} side={line.kind === 'del' ? 'old' : 'new'} text={line.text} onAddThread={onAddThread} />}
       </td>
       <td className="gutter">
         {mark ? <AnchorDot mark={mark} onClick={onAnchorClick} /> : gutter}
@@ -1560,7 +1576,7 @@ function SplitCell({
   line: DiffLine | null;
   side: 'old' | 'new';
   lang: string | null;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   mark?: AnchorMark;
   onAnchorClick?: (mark: AnchorMark) => void;
 }) {
@@ -1582,8 +1598,8 @@ function SplitCell({
       <td className={`${lnBase}${mod}${mark ? ' has-anchor' : ''}`}>
         {mark && onAnchorClick && <AnchorDot mark={mark} onClick={onAnchorClick} />}
         {lineNo}
-        {side === 'new' && line.newLine != null && (
-          <AddThread line={line.newLine} text={line.text} onAddThread={onAddThread} />
+        {lineNo != null && (side === 'new' || line.kind === 'del') && (
+          <AddThread line={lineNo} side={side} text={line.text} onAddThread={onAddThread} />
         )}
       </td>
       <td className={srcBase + mod} data-hit={hitKey(line)}>
@@ -1602,14 +1618,14 @@ function SplitRow({
 }: {
   row: SplitPair;
   lang: string | null;
-  onAddThread?: (line: number, snippet: string) => void;
+  onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   anchorByLine: Map<number, AnchorMark>;
   onAnchorClick: (mark: AnchorMark) => void;
 }) {
   const mark = row.right?.newLine != null ? anchorByLine.get(row.right.newLine) : undefined;
   return (
-    <tr className="row" data-new-line={row.right?.newLine ?? undefined}>
-      <SplitCell line={row.left} side="old" lang={lang} />
+    <tr className="row" data-new-line={row.right?.newLine ?? undefined} data-old-line={row.left?.kind === 'del' ? row.left.oldLine ?? undefined : undefined}>
+      <SplitCell line={row.left} side="old" lang={lang} onAddThread={onAddThread} onAnchorClick={onAnchorClick} mark={row.left?.kind === 'del' && row.left.oldLine != null ? anchorByLine.get(-row.left.oldLine) : undefined} />
       <SplitCell
         line={row.right}
         side="new"

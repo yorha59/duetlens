@@ -411,7 +411,9 @@ export interface Discussion {
   kind: DiscussionKind;
   origin: FindingOrigin;
   file: string | null;
-  /** 锚点起始行(新侧);范围以 lineEnd 表达 */
+  /** 缺省为新侧;删除内容锚定 old。 */
+  side?: 'old' | 'new';
+  /** 锚点起始行;范围以 lineEnd 表达 */
   line: number | null;
   lineEnd: number | null;
   createdAt: number;
@@ -429,6 +431,8 @@ export interface Finding {
   body: string;
   file: string;
   line: number;
+  /** 缺省为新侧;删除内容锚定 old。 */
+  side?: 'old' | 'new';
   /**
    * 提交屏把这条从 inline 行评论降级为摘要条目(见 {@link hasAnchor})。
    * 锚点值本身留着不清 —— 摘要里要写出 `file:line`,失效锚点也还能改回行评论。
@@ -561,7 +565,7 @@ export function findingSuggestion(
  * 行号缺失(存量脱锚数据把行号清成了 0)时只给文件名,别写出 `path:0` 这种假位置。
  */
 export function findingAnchorText(f: Finding): string {
-  return f.line > 0 ? `${f.file}:${f.line}` : f.file;
+  return f.line > 0 ? `${f.file}:${f.line}${f.side === 'old' ? '（删除前）' : ''}` : f.file;
 }
 
 export interface Message {

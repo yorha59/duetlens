@@ -625,6 +625,7 @@ function ReviewPane({
         file: anchor.file,
         line: anchor.line,
         ...draft,
+        side: anchor.side,
       });
       requestFocusFile(f.file);
       expandFile(f.file);
@@ -903,7 +904,7 @@ function ReviewPane({
     if (!review?.workspaceMissingFiles?.length) return;
     if (activeDiscussionId && !discussions.some((discussion) => discussion.id === activeDiscussionId)) setActiveDiscussionId(null);
     if (focusFindingId && !findings.some((finding) => finding.id === focusFindingId)) setFocusFindingId(null);
-    if (activePath && review.workspaceMissingFiles.includes(activePath)) setActivePath(diff[0]?.path ?? null);
+    if (activePath && review.workspaceMissingFiles.includes(activePath) && !diff.some((file) => file.path === activePath)) setActivePath(diff[0]?.path ?? null);
   }, [review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
 
   const [localRefreshError, setLocalRefreshError] = useState('');

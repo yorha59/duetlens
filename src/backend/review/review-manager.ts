@@ -23,6 +23,7 @@ import type {
 } from '@shared/domain';
 import type { AgentErrorKind } from '@shared/agent-events';
 import type { PrContext } from '@shared/github-context';
+import { workspaceAnchorVisible } from '@shared/workspace-anchors';
 import { findingTouchesDelta, shiftedFindingLine } from '@shared/incremental-review';
 import { changedFilesBetween, parseUnifiedDiff, type DiffFile } from '@shared/diff';
 import type { AddFindingInput, BusyReview, DiffStatInput, FindingEditInput, LatestDiffResult, LiveCapacity, RecentReview, RerunInput, ReviewEvent, ReviewScopes, ReviewStartStage, ScopeState, StartScanInput, SubmitReviewInput, SubmitReviewResult } from '@shared/ipc';
@@ -529,13 +530,15 @@ export class ReviewManager extends EventEmitter {
   }
 
   getFindings(reviewId: string): Finding[] {
-    const hidden = new Set(this.store.getReview(reviewId)?.workspaceMissingFiles ?? []);
-    return this.store.listFindings(reviewId).filter((finding) => !hidden.has(finding.file));
+    const review = this.store.getReview(reviewId);
+    const diff = this.getDiff(reviewId);
+    return this.store.listFindings(reviewId).filter((finding) => workspaceAnchorVisible(finding, review, diff));
   }
 
   getDiscussions(reviewId: string): Discussion[] {
-    const hidden = new Set(this.store.getReview(reviewId)?.workspaceMissingFiles ?? []);
-    return this.store.listDiscussions(reviewId).filter((discussion) => !discussion.file || !hidden.has(discussion.file));
+    const review = this.store.getReview(reviewId);
+    const diff = this.getDiff(reviewId);
+    return this.store.listDiscussions(reviewId).filter((discussion) => workspaceAnchorVisible(discussion, review, diff));
   }
 
   getMessages(discussionId: string): Message[] {
@@ -648,7 +651,7 @@ export class ReviewManager extends EventEmitter {
   /** 新建一条用户发起的 discussion(不落 finding);anchor 省略即不锚定代码的全局讨论。 */
   addUserDiscussion(
     reviewId: string,
-    anchor?: { file: string; line: number; lineEnd?: number | null } | null,
+    anchor?: { file: string; line: number; lineEnd?: number | null; side?: 'old' | 'new' } | null,
   ): Discussion {
     const discussion = this.store.addUserDiscussion(reviewId, anchor);
     this.forward({ reviewId, type: 'discussion', payload: discussion });
@@ -859,6 +862,7 @@ export class ReviewManager extends EventEmitter {
         body: input.body ?? '',
         file: input.file,
         line: input.line,
+        side: input.side,
         suggestion: input.suggestion ?? undefined,
       },
       'manual',
@@ -1600,7 +1604,7 @@ export class ReviewManager extends EventEmitter {
       }
       if (review.localReview || review.source === 'local-worktree') this.store.setWorkspaceSnapshotTree(reviewId, prepared.headSha ?? null);
       for (const finding of skipped) {
-        const line = shiftedFindingLine(finding, deltaFiles);
+        const line = finding.side === 'old' ? finding.line : shiftedFindingLine(finding, deltaFiles);
         if (line !== finding.line && !finding.anchorDropped) this.setFindingAnchor(reviewId, finding.id, line);
       }
       this.store.setRoundScanDiff(reviewId, round.round, opts.incremental ? scanDiff : null);

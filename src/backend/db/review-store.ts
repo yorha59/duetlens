@@ -91,6 +91,7 @@ interface RoundRow {
 }
 
 interface FindingRow {
+  side?: 'old' | 'new';
   id: string;
   review_id: string;
   discussion_id: string;
@@ -124,6 +125,7 @@ interface FindingRow {
 }
 
 interface DiscussionRow {
+  side?: 'old' | 'new';
   id: string;
   review_id: string;
   kind: string;
@@ -235,6 +237,7 @@ function parseStringList(raw: unknown): string[] {
 
 function toFinding(r: FindingRow): Finding {
   return {
+    side: r.side ?? 'new',
     id: r.id,
     reviewId: r.review_id,
     discussionId: r.discussion_id,
@@ -300,6 +303,7 @@ function toProposal(r: ProposalRow): FindingProposal {
 
 function toDiscussion(r: DiscussionRow): Discussion {
   return {
+    side: r.side ?? 'new',
     id: r.id,
     reviewId: r.review_id,
     kind: r.kind as Discussion['kind'],
@@ -491,7 +495,7 @@ export class ReviewStore {
       for (const finding of this.listFindings(localId)) {
         const link = this.db.prepare('SELECT remote_id, source_updated_at FROM workspace_finding_links WHERE local_id = ?').get(finding.id) as { remote_id: string; source_updated_at: number } | undefined;
         const existing = link ? this.getFinding(link.remote_id) : remoteFindings.find((f) =>
-          f.file === finding.file && f.line === finding.line && f.title === finding.title && f.body === finding.body &&
+          f.file === finding.file && f.line === finding.line && (f.side ?? 'new') === (finding.side ?? 'new') && f.title === finding.title && f.body === finding.body &&
           !this.db.prepare('SELECT 1 FROM workspace_finding_links WHERE remote_id = ?').get(f.id));
         const target = existing ?? this.addFinding(remote.id, { ...finding, category: finding.category ?? undefined, suggestion: finding.suggestion ?? undefined }, finding.origin);
         const fresh = link?.source_updated_at !== finding.updatedAt;
@@ -507,7 +511,7 @@ export class ReviewStore {
           created_at: target.createdAt, updated_at: now() };
         const entries = Object.entries(values).filter(([key]) => key !== 'id');
         this.db.prepare(`UPDATE findings SET ${entries.map(([key]) => `${key} = ?`).join(',')} WHERE id = ?`).run(...entries.map(([, value]) => value), target.id);
-        this.db.prepare('UPDATE discussions SET file = ?, line = ? WHERE id = ?').run(finding.file, finding.line, target.discussionId);
+        this.db.prepare('UPDATE discussions SET file = ?, line = ?, side = ? WHERE id = ?').run(finding.file, finding.line, finding.side ?? 'new', target.discussionId);
       }
       this.setDiff(remote.id, rawDiff);
       this.writeAgentSummary(remote.id, local.summaryBody ?? '', local.summaryFiles);
@@ -900,7 +904,7 @@ export class ReviewStore {
   // id 可显式传入(用 MCP 生成的 id,使 codex 的 finding id === 存储 id,便于 update_finding)
   addFinding(
     reviewId: string,
-    input: ReportFindingInput,
+    input: ReportFindingInput & { side?: 'old' | 'new' },
     origin: Finding['origin'] = 'agent',
     id: string = randomUUID(),
     /** 报出它的 turn 类型;只有 agent 上报路径给得出,手动/提升留 null(origin 列已区分那两者) */
@@ -941,6 +945,8 @@ export class ReviewStore {
           ts,
           ts,
         );
+      this.db.prepare('UPDATE findings SET side = ? WHERE id = ?').run(input.side ?? 'new', findingId);
+      this.db.prepare('UPDATE discussions SET side = ? WHERE id = ?').run(input.side ?? 'new', discussionId);
       this.touchReview(reviewId, ts);
     });
     insert();
@@ -1219,7 +1225,7 @@ export class ReviewStore {
   /** anchor 为空 = 不锚定任何代码的全局讨论(问架构 / 问整体,后续也可补锚点提升为 finding)。 */
   addUserDiscussion(
     reviewId: string,
-    anchor?: { file: string; line: number; lineEnd?: number | null } | null,
+    anchor?: { file: string; line: number; lineEnd?: number | null; side?: 'old' | 'new' } | null,
   ): Discussion {
     const id = randomUUID();
     const ts = this.withReviewTouch({ review: reviewId }, (writeTs) => {
@@ -1229,9 +1235,11 @@ export class ReviewStore {
            VALUES (?, ?, 'user', 'manual', ?, ?, ?, ?)`,
         )
         .run(id, reviewId, anchor?.file ?? null, anchor?.line ?? null, anchor?.lineEnd ?? null, writeTs);
+      this.db.prepare('UPDATE discussions SET side = ? WHERE id = ?').run(anchor?.side ?? 'new', id);
       return writeTs;
     });
     return {
+      side: anchor?.side ?? 'new',
       id,
       reviewId,
       kind: 'user',
@@ -1286,6 +1294,7 @@ export class ReviewStore {
           ts,
           ts,
         );
+      this.db.prepare('UPDATE findings SET side = ? WHERE id = ?').run(disc.side ?? 'new', findingId);
       this.touchReview(disc.reviewId, ts);
     });
     run();

@@ -162,7 +162,7 @@ export function SubmitGitHubScreen({
    * 三条出路(改锚点 / 降级为摘要 / 剔除)都能把 staleIds 清零,按住不会把人堵死。
    */
   const canSend = fresh.state !== 'checking' && staleIds.size === 0;
-  const reAnchorableCount = staleList.filter((f) => nearestLiveLine(f.file, f.line, diff) != null).length;
+  const reAnchorableCount = staleList.filter((f) => nearestLiveLine(f.file, f.line, diff, f.side) != null).length;
 
   // 派生上报而非在 submit() 里逐条路径手动置位:那样每加一条 return 就漏一次解冻
   useEffect(() => onBusyChange?.(sub === 'submitting'), [sub, onBusyChange]);
@@ -199,7 +199,7 @@ export function SubmitGitHubScreen({
   };
   const reAnchor = (f: Finding) => {
     if (busy) return;
-    const line = nearestLiveLine(f.file, f.line, diff);
+    const line = nearestLiveLine(f.file, f.line, diff, f.side);
     if (line != null) void window.duetlens.review.setFindingAnchor(reviewId, f.id, line);
   };
   const reAnchorAll = () => staleList.forEach(reAnchor);
@@ -368,7 +368,7 @@ export function SubmitGitHubScreen({
             const narrative = findingNarrative(f, round);
             const orig = originalLineOf(f);
             const suggestion = findingSuggestion(f, round, orig);
-            const canReAnchor = isStale && nearestLiveLine(f.file, f.line, diff) != null;
+            const canReAnchor = isStale && nearestLiveLine(f.file, f.line, diff, f.side) != null;
             const cls =
               // 前缀不能省:裸 .finding 会漏到审核屏的内联卡与批注 composer(它们也带 .finding)
               'sub-fnd' +
@@ -458,7 +458,7 @@ export function SubmitGitHubScreen({
                         <span onClick={() => degradeToSummary(f)}>降级为摘要评论</span>
                         {canReAnchor && (
                           <span onClick={() => reAnchor(f)}>
-                            改锚点到最近改动行(:{nearestLiveLine(f.file, f.line, diff)})
+                            改锚点到最近改动行(:{nearestLiveLine(f.file, f.line, diff, f.side)})
                           </span>
                         )}
                         <span onClick={() => toggleKeep(f)}>剔除此条</span>

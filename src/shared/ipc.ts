@@ -280,6 +280,7 @@ export interface FindingEditInput {
 
 /** 用户发起 discussion 的锚点;省略即建一条不锚定代码的全局讨论。 */
 export interface DiscussionAnchor {
+  side?: 'old' | 'new';
   file: string;
   line: number;
   lineEnd?: number | null;
@@ -287,6 +288,7 @@ export interface DiscussionAnchor {
 
 /** 用户手动新增一条 finding(origin=manual;锚点由 diff 框选/行内选定,字段就地填写)。 */
 export interface AddFindingInput {
+  side?: 'old' | 'new';
   file: string;
   line: number;
   severity: Finding['severity'];
