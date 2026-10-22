@@ -363,9 +363,14 @@ ALTER TABLE discussions ADD COLUMN side TEXT NOT NULL DEFAULT 'new';
 ALTER TABLE findings ADD COLUMN side TEXT NOT NULL DEFAULT 'new';
 `;
 
+const V32 = `
+ALTER TABLE review_rounds ADD COLUMN base_sha TEXT;
+UPDATE review_rounds SET base_sha = (SELECT local_base_ref FROM reviews WHERE reviews.id = review_rounds.review_id AND local_review = 1);
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31,
+  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32,
 ];
 
 export function migrate(db: Database): void {

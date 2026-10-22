@@ -94,7 +94,7 @@ export class LocalWorktreeSource implements Source {
       this.tree = (await this.git(['write-tree'])).trim();
       // agent 的 cwd 也是本轮快照,普通只读工具与 MCP 看到同一份代码。
       if (this.target.materialize !== false) await this.git(['checkout-index', '--all', '--force']);
-      return { title: `未提交改动 · ${path.basename(repo)}`, cwd: this.snapshot, headSha: this.tree };
+      return { title: `未提交改动 · ${path.basename(repo)}`, cwd: this.snapshot, headSha: this.tree, baseSha: this.base };
     } catch (error) {
       await this.dispose();
       throw error;

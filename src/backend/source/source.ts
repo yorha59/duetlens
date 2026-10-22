@@ -33,6 +33,7 @@ export interface ReviewTarget {
 }
 
 export interface PreparedSource {
+  baseSha?: string | null;
   /** 供 UI/持久化的标题 */
   title: string;
   /** codex 会话的工作目录 */

@@ -17,7 +17,7 @@ export interface WorkspacePr {
   state: string;
   html_url: string;
   head: { ref: string; sha: string; repo: { full_name: string } | null };
-  base: { sha: string; repo?: { full_name: string } };
+  base: { ref?: string; sha: string; repo?: { full_name: string } };
 }
 
 /** 仅接受 GitHub 仓库 URL;比较身份不依赖 remote 名字,也不把凭据传到界面。 */
@@ -27,6 +27,7 @@ export function githubRepository(url: string): string | null {
 }
 
 export class PrWorkspace {
+  private readonly baseMetadata = new Map<string, { at: number; pr: WorkspacePr }>();
   constructor(
     private readonly run: WorkspaceRun = boundedRun,
     private readonly getPr = async (ref: string, repoPath: string): Promise<WorkspacePr> => {
@@ -77,6 +78,47 @@ export class PrWorkspace {
       : info.pr.base.sha;
     const base = (await this.run('git', ['merge-base', 'HEAD', baseCommit], info.repoPath)).trim();
     return { repoPath: info.repoPath, base };
+  }
+
+  /** 本地展示允许 rebase 后的分支;不要求尚未推送的 HEAD 是旧 PR head 的后代。 */
+  async reviewBase(review: Review): Promise<string> {
+    if (!review.repoPath) throw new Error('本地仓库未关联');
+    const git = (args: string[]) => this.run('git', ['--no-optional-locks', ...args], review.repoPath!);
+    if (review.baseRef) {
+      const explicit = (await git(['rev-parse', '--verify', '--end-of-options', `${review.baseRef}^{commit}`])).trim();
+      return (await git(['merge-base', 'HEAD', explicit])).trim();
+    }
+    const key = `${review.sourceRef}:${review.repoPath}`;
+    let cached = this.baseMetadata.get(key);
+    if (!cached || Date.now() - cached.at > 60_000) {
+      cached = { at: Date.now(), pr: await this.getPr(review.sourceRef, review.repoPath) };
+      this.baseMetadata.set(key, cached);
+    }
+    const pr = cached.pr;
+    let target = pr.base.sha;
+    if (pr.base.ref && pr.base.repo) {
+      const candidates: string[] = [];
+      const remotes = (await git(['remote'])).trim().split('\n').filter(Boolean);
+      for (const remote of remotes) {
+        const url = (await git(['remote', 'get-url', remote])).trim();
+        if (githubRepository(url) !== pr.base.repo.full_name.toLowerCase()) continue;
+        const ref = `refs/remotes/${remote}/${pr.base.ref}`;
+        try { candidates.push((await git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`])).trim()); }
+        catch { /* 没有跟踪目标分支时使用 API 的提交,不会退回旧共同祖先。 */ }
+      }
+      if (new Set(candidates).size > 1) throw new Error('目标仓库存在不同版本的远端跟踪分支,请先更新并统一目标分支');
+      if (candidates.length) {
+        target = candidates[0];
+        // API 已前进且对象在本地可用时,旧的 remote-tracking ref 不能把基线拉回去。
+        try {
+          await git(['cat-file', '-e', `${pr.base.sha}^{commit}`]);
+          try { await git(['merge-base', '--is-ancestor', target, pr.base.sha]); target = pr.base.sha; }
+          catch { /* 跟踪分支可能比缓存的 API 元数据更新,继续使用它。 */ }
+        } catch { /* 尚未下载最新目标对象,使用已验证身份的本地跟踪分支。 */ }
+      }
+    }
+    try { return (await git(['merge-base', 'HEAD', target])).trim(); }
+    catch { throw new Error('无法确定当前 PR 目标分支的共同祖先,请先在本地更新远端目标分支'); }
   }
 
   /** 轻量状态查询:只读状态与提交标识,不生成快照或启动审核。 */

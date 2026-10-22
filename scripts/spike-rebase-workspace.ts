@@ -1,0 +1,85 @@
+import { strict as assert } from 'node:assert';
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { openDatabase } from '../src/backend/db/database';
+import { ReviewStore } from '../src/backend/db/review-store';
+import { ReviewManager } from '../src/backend/review/review-manager';
+import { LocalWorktreeSource } from '../src/backend/source/local-worktree-source';
+import { parseUnifiedDiff } from '../src/shared/diff';
+import { PrWorkspace } from '../src/backend/source/pr-workspace';
+import { SessionShareServer } from '../src/backend/share/session-share-server';
+import { SharedSessionReader } from '../src/backend/share/session-reader';
+const exec = promisify(execFile);
+async function main() {
+ const root = await mkdtemp(path.join(os.tmpdir(), 'duetlens-rebase-'));
+ const repo = path.join(root, 'repo'); const snapshots = path.join(root, 'snapshots');
+ const db = openDatabase(':memory:');
+ let server: SessionShareServer | undefined;
+ try {
+  const git = async (...args: string[]) => (await exec('git', args, { cwd: repo })).stdout;
+  await exec('git', ['init', '-qb', 'main', repo]);
+  await git('config', 'user.name', 'test'); await git('config', 'user.email', 'test@example.com');
+  await writeFile(path.join(repo, 'released-changeset.md'), 'already released\n');
+  await git('add', '.'); await git('commit', '-qm', 'old base');
+  const oldBase = (await git('rev-parse', 'HEAD')).trim();
+  await git('checkout', '-qb', 'feature');
+  await writeFile(path.join(repo, 'feature.ts'), 'PR code\n'); await git('add', '.'); await git('commit', '-qm', 'PR');
+  const oldHead = (await git('rev-parse', 'HEAD')).trim();
+  const source = new LocalWorktreeSource({ source: 'local-worktree', ref: '', repoPath: repo, baseRef: oldBase });
+  const oldSnapshot = await source.prepare(); const oldDiff = await source.getDiff();
+  const store = new ReviewStore(db);
+  const remote = store.createReview({ source: 'github-pr', sourceRef: 'acme/repo#1', repoPath: repo, status: 'reviewing' });
+  const local = store.createWorkspaceLocal(remote.id, repo, oldBase, oldDiff, oldSnapshot.headSha!);
+  store.startRound(local.id, 1, { headSha: oldSnapshot.headSha, baseSha: oldBase }); store.finishRound(local.id, 1, 'done');
+  await source.saveSnapshot(path.join(snapshots, local.id)); await source.dispose();
+  await git('checkout', '-q', 'main'); await rm(path.join(repo, 'released-changeset.md'));
+  await writeFile(path.join(repo, 'unrelated-main.ts'), 'main only\n'); await git('add', '-A'); await git('commit', '-qm', 'main release');
+  const mainHead = (await git('rev-parse', 'HEAD')).trim();
+  await git('checkout', '-q', 'feature'); await git('rebase', 'main');
+  await git('remote', 'add', 'origin', 'git@github.com:acme/repo.git'); await git('update-ref', 'refs/remotes/origin/main', mainHead);
+  await writeFile(path.join(repo, 'feature.ts'), 'staged part\n'); await git('add', 'feature.ts');
+  await writeFile(path.join(repo, 'feature.ts'), 'staged and unstaged current contents\n');
+  await writeFile(path.join(repo, 'new-untracked.ts'), 'untracked content\n');
+  const index = await readFile(path.join(repo, '.git/index')); const status = await git('status', '--porcelain=v1');
+  let agents = 0; let metadataReads = 0;
+  const prWorkspace = new PrWorkspace(async (cmd, args, cwd) => (await exec(cmd, args, { cwd })).stdout,
+   async () => { metadataReads++; return { state: 'open', html_url: '', head: { ref: 'feature', sha: oldHead, repo: { full_name: 'acme/repo' } }, base: { ref: 'main', sha: oldBase, repo: { full_name: 'acme/repo' } } }; });
+  const manager = new ReviewManager(store, undefined, { prWorkspace, snapshotRoot: snapshots, agentFactory: () => { agents++; throw Error('must not run'); } });
+  const reader = new SharedSessionReader(store, snapshots);
+  server = new SessionShareServer(store, reader, path.join(root, 'server.json'), id => manager.refreshLocal(id));
+  const { url } = await server.share(local.id);
+  const response = await fetch(url); assert.equal(response.status, 200);
+  const shared = await response.json() as ReturnType<SharedSessionReader['context']>;
+  assert.equal(shared.review.baseRef, mainHead);
+  assert.equal(shared.review.reviewedBase, oldBase); assert.equal(shared.review.reviewedHead, oldSnapshot.headSha);
+  assert.deepEqual(shared.files.map(f => f.path).sort(), ['feature.ts', 'new-untracked.ts']);
+  assert.equal(await manager.getFileContent(local.id, 'feature.ts'), 'staged and unstaged current contents\n');
+  assert.equal(await manager.getFileContent(local.id, 'new-untracked.ts'), 'untracked content\n');
+  assert.equal(store.getRound(local.id, 1)?.baseSha, oldBase);
+  const second = await fetch(url); assert.equal(second.status, 200); assert.equal(metadataReads, 1, 'no network metadata polling on each read');
+  assert.deepEqual(await readFile(path.join(repo, '.git/index')), index); assert.equal(await git('status', '--porcelain=v1'), status);
+  // HEAD 与文件内容都不动,只更新跟踪分支也必须重算基线和 diff。
+  await git('update-ref', 'refs/remotes/origin/main', oldBase); await manager.refreshLocal(local.id);
+  assert.equal(store.getReview(local.id)?.localBaseRef, oldBase);
+  assert.throws(() => reader.diff(local.id, shared.review.head, '1', mainHead), /基线已更新/);
+  await git('update-ref', 'refs/remotes/origin/main', mainHead); await manager.refreshLocal(local.id);
+  assert.equal(store.getReview(local.id)?.localBaseRef, mainHead);
+  assert(!manager.getDiff(local.id).some(f => f.path === 'released-changeset.md'));
+  assert.equal(agents, 0);
+  // 复审不能拿跨 rebase 的两个整仓 tree 做增量,否则 main 发布改动会混入。
+  const rerunManager = new ReviewManager(store, undefined, { prWorkspace, snapshotRoot: snapshots, agentFactory: () => { throw Error('TEST_AGENT_STOP'); } });
+  await assert.rejects(rerunManager.rerunReview(local.id), /TEST_AGENT_STOP/);
+  const next = store.getRound(local.id, 2)!;
+  assert.equal(next.baseSha, mainHead); assert.equal(next.incremental, false);
+  assert.match(next.note!, /共同祖先已变化/);
+  assert.deepEqual(next.changedFiles.sort(), ['feature.ts', 'new-untracked.ts']);
+  assert.deepEqual(parseUnifiedDiff(store.getRawDiff(local.id)!).map(f => f.path).sort(), ['feature.ts', 'new-untracked.ts']);
+  assert.equal(store.getRoundScanDiff(local.id, 2), null);
+  assert.equal(store.getRound(local.id, 1)?.baseSha, oldBase);
+  console.log('rebase workspace: current merge-base/HEAD, cached PR target, ref-only movement, staged+unstaged+untracked, background HTTP refresh, historical base/head, index/status preserved, zero agents passed');
+ } finally { await server?.close(); db.close(); await rm(root, { recursive: true, force: true }); }
+}
+void main().catch(error => { console.error(error); process.exitCode = 1; });

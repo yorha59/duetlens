@@ -180,7 +180,7 @@ app.whenReady().then(async () => {
     },
   });
   shareServer = new SessionShareServer(store, new SharedSessionReader(store, path.join(app.getPath('userData'), 'review-snapshots')),
-    path.join(app.getPath('userData'), 'share-server.json'));
+    path.join(app.getPath('userData'), 'share-server.json'), (id) => manager!.refreshLocal(id));
   // 重启恢复已有链接;启动失败不影响审核,点击分享时可重试并显示具体错误。
   if (store.hasReviewShares()) void shareServer.start().catch(() => {});
   registerIpcHandlers({ manager, broadcast, updater, shareServer });

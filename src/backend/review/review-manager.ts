@@ -334,22 +334,23 @@ export class ReviewManager extends EventEmitter {
     let source: Source | undefined;
     try {
       const anchored = [...new Set([...this.store.listFindings(reviewId).map((finding) => finding.file), ...this.store.listDiscussions(reviewId).map((discussion) => discussion.file).filter((file): file is string => !!file)])].sort();
-      const fingerprint = `${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`;
+      const base = review.localReview ? await this.prWorkspace.reviewBase(review) : undefined;
+      const fingerprint = `${base ?? ''}:${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`;
       if (this.localFingerprints.get(reviewId) === fingerprint) return { changed: false };
-      source = this.makeSource({ ...targetOf(review, this.snapshotRoot), materialize: false });
+      source = this.makeSource({ ...targetOf(review, this.snapshotRoot), ...(base ? { baseRef: base } : {}), materialize: false });
       const prepared = await source.prepare();
       if (!prepared.headSha) throw new Error('本地代码快照不可用');
       const rawDiff = await source.getDiff();
       const missing: string[] = [];
       for (const file of anchored) if (source.hasFile && !await source.hasFile(file)) missing.push(file);
       if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, reviewId));
-      const changed = review.workspaceHead !== prepared.headSha || this.store.getRawDiff(reviewId) !== rawDiff || JSON.stringify(review.workspaceMissingFiles ?? []) !== JSON.stringify(missing);
+      const changed = (review.localReview && review.localBaseRef !== prepared.baseSha) || review.workspaceHead !== prepared.headSha || this.store.getRawDiff(reviewId) !== rawDiff || JSON.stringify(review.workspaceMissingFiles ?? []) !== JSON.stringify(missing);
       if (changed) {
-        this.store.updateWorkspaceDisplay(reviewId, prepared.headSha, rawDiff, missing);
+        this.store.updateWorkspaceDisplay(reviewId, prepared.headSha, rawDiff, missing, prepared.baseSha);
         this.forward({ reviewId, type: 'workspace', payload: this.store.getReview(reviewId)! });
       }
       // 如果创建快照期间工作区再次变化,下一次轮询仍会重试。
-      if (fingerprint === `${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`) this.localFingerprints.set(reviewId, fingerprint);
+      if (fingerprint === `${base ?? ''}:${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`) this.localFingerprints.set(reviewId, fingerprint);
       return { changed };
     } finally { await source?.dispose(); this.workspaceBusy.delete(reviewId); }
   }
@@ -1531,7 +1532,8 @@ export class ReviewManager extends EventEmitter {
     let release = () => {};
     let epoch = this.teardownEpoch(reviewId);
 
-    const source = this.makeSource(targetOf(review, this.snapshotRoot));
+    const currentBase = review.localReview ? await this.prWorkspace.reviewBase(review) : undefined;
+    const source = this.makeSource({ ...targetOf(review, this.snapshotRoot), ...(currentBase ? { baseRef: currentBase } : {}) });
     let round: ReviewRound;
     let prepared: Awaited<ReturnType<typeof source.prepare>>;
     let rawDiff: string;
@@ -1545,6 +1547,18 @@ export class ReviewManager extends EventEmitter {
       opts.onStage?.('record');
       const prevDiff = this.store.getRawDiff(reviewId);
       scanDiff = rawDiff;
+      const baseChanged = !!(review.localReview && prepared.baseSha && prevRound?.baseSha !== prepared.baseSha);
+      if (baseChanged && opts.incremental) {
+        // 基线变化时不能把两个整仓 tree 的差异当成 PR 增量,否则 main 的更新会混入审核。
+        opts.incremental = false;
+        opts.note = [opts.note, '目标分支/共同祖先已变化,本轮只复核当前 PR 改动面,不将 main 的更新作为 PR 改动。'].filter(Boolean).join('\n');
+      }
+      if (baseChanged && !rawDiff.trim()) {
+        this.store.updateWorkspaceDisplay(reviewId, prepared.headSha!, rawDiff, review.workspaceMissingFiles ?? [], prepared.baseSha);
+        this.forward({ reviewId, type: 'workspace', payload: this.store.getReview(reviewId)! });
+        throw new Error('NO_REVIEW_CHANGES:当前目标分支下没有 PR 改动,已跳过复审,未启动 AI。');
+      }
+      if (prepared.baseSha && review.localReview) review = { ...review, localBaseRef: prepared.baseSha };
       if (opts.incremental) {
         if (prevRound && prevRound.status !== 'done') throw new Error('上一轮未完整完成,请先重试该轮或选择全量复审,避免跳过尚未审核的代码');
         if (!prevRound?.headSha || !source.getDiffSince) throw new Error('缺少可比较的上一轮代码快照,请选择全量复审建立基线');
@@ -1566,10 +1580,10 @@ export class ReviewManager extends EventEmitter {
           return done;
         }
       }
-      const changedFiles = opts.incremental
+      const changedFiles = baseChanged ? parseUnifiedDiff(rawDiff).map((file) => file.path) : opts.incremental
         ? parseUnifiedDiff(scanDiff).map((file) => file.path)
         : [...new Set([...(opts.priorChanged?.changedFiles ?? []), ...changedFilesBetween(prevDiff, rawDiff)])].sort();
-      const codeChanged = opts.incremental ? !!scanDiff.trim() : Boolean(opts.priorChanged?.codeChanged) || prevDiff !== rawDiff;
+      const codeChanged = baseChanged ? !!rawDiff.trim() : opts.incremental ? !!scanDiff.trim() : Boolean(opts.priorChanged?.codeChanged) || prevDiff !== rawDiff;
       if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, reviewId));
       await this.teardown(reviewId);
       this.scopeCommits.delete(reviewId);
@@ -1595,14 +1609,17 @@ export class ReviewManager extends EventEmitter {
         canSearch: !!source.searchCode,
       });
       if (opts.incremental) baseInstructions += `\n${INCREMENTAL_REVIEW_RULE}`;
-      const roundInput = { headSha: prepared.headSha, note: opts.note, changedFiles, codeChanged };
+      const roundInput = { baseSha: prepared.baseSha, headSha: prepared.headSha, note: opts.note, changedFiles, codeChanged };
       if (opts.workspaceChanged) {
         round = this.store.recordWorkspaceRound(review, opts.round, roundInput, rawDiff);
       } else {
         this.store.setDiff(reviewId, rawDiff);
         round = this.store.startRound(reviewId, opts.round, roundInput);
       }
-      if (review.localReview || review.source === 'local-worktree') this.store.setWorkspaceSnapshotTree(reviewId, prepared.headSha ?? null);
+      if (review.localReview || review.source === 'local-worktree') {
+        this.store.setWorkspaceSnapshotTree(reviewId, prepared.headSha ?? null);
+        if (review.localReview) this.store.setReviewWorkspace(reviewId, review.repoPath!, true, prepared.baseSha ?? review.localBaseRef ?? null);
+      }
       for (const finding of skipped) {
         const line = finding.side === 'old' ? finding.line : shiftedFindingLine(finding, deltaFiles);
         if (line !== finding.line && !finding.anchorDropped) this.setFindingAnchor(reviewId, finding.id, line);

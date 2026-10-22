@@ -376,6 +376,8 @@ export interface Review {
  * 避免新旧 diff 的行号在同一上下文里互相污染。
  */
 export interface ReviewRound {
+  /** 本轮真正审核时的共同祖先;不会随工作区刷新覆盖。 */
+  baseSha?: string | null;
   /** 本轮机审只接收上一轮 → 当前快照的增量。 */
   incremental?: boolean;
   reviewId: string;

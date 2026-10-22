@@ -11,7 +11,7 @@ export class SessionShareServer {
   private starting?: Promise<string>;
   private origin?: string;
   private activeReads = 0;
-  constructor(private readonly store: ReviewStore, private readonly reader: SharedSessionReader, private readonly statePath: string) {}
+  constructor(private readonly store: ReviewStore, private readonly reader: SharedSessionReader, private readonly statePath: string, private readonly refreshLocal?: (id: string) => Promise<unknown>) {}
 
   async start(): Promise<string> {
     if (this.origin) return this.origin;
@@ -85,14 +85,17 @@ export class SessionShareServer {
     if (this.activeReads >= 4) { send(429, { error: '读取请求较多,请稍后重试' }); return; }
     this.activeReads++;
     try {
+      // 后台窗口也能读取最新工作区;不启动 agent。版本变化由 file/diff 的 409 闸门处理。
+      await this.refreshLocal?.(id);
+      if (this.store.getSharedReviewId(match[1]) !== id) throw new ShareReadError(404, '分享已停止');
       const sessionUrl = `${this.origin}/sessions/${match[1]}`;
       if (match[2] === 'file') {
-        const result = await this.reader.file(id, url.searchParams.get('path') ?? '', url.searchParams.get('head'), url.searchParams.get('round'));
+        const result = await this.reader.file(id, url.searchParams.get('path') ?? '', url.searchParams.get('head'), url.searchParams.get('round'), url.searchParams.get('base'));
         // 读取期间撤销或删除的分享不再返回数据。
         if (this.store.getSharedReviewId(match[1]) !== id) throw new ShareReadError(404, '分享已停止');
         send(200, result);
       } else if (match[2] === 'diff') {
-        send(200, this.reader.diff(id, url.searchParams.get('head'), url.searchParams.get('round')), 'text/plain; charset=utf-8');
+        send(200, this.reader.diff(id, url.searchParams.get('head'), url.searchParams.get('round'), url.searchParams.get('base')), 'text/plain; charset=utf-8');
       } else send(200, this.reader.context(id, sessionUrl));
     } catch (error) {
       if (error instanceof ShareReadError) send(error.status, { error: error.message });

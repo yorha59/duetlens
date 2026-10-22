@@ -72,6 +72,7 @@ interface ReviewRow {
 }
 
 interface RoundRow {
+  base_sha?: string | null;
   scan_diff?: string | null;
   review_id: string;
   round: number;
@@ -196,6 +197,7 @@ function toRound(r: RoundRow): ReviewRound {
     round: r.round,
     agentSessionId: r.agent_session_id,
     headSha: r.head_sha,
+    baseSha: r.base_sha ?? null,
     status: r.status as RoundStatus,
     note: r.note,
     newFindings: r.new_findings,
@@ -436,9 +438,10 @@ export class ReviewStore {
     this.db.prepare('UPDATE reviews SET workspace_snapshot_tree = ? WHERE id = ?').run(head, id);
   }
 
-  updateWorkspaceDisplay(id: string, head: string, rawDiff: string, missing: string[]): void {
+  updateWorkspaceDisplay(id: string, head: string, rawDiff: string, missing: string[], baseSha?: string | null): void {
     this.db.transaction(() => {
       this.setDiff(id, rawDiff);
+      if (baseSha) this.db.prepare('UPDATE reviews SET local_base_ref = ? WHERE id = ? AND local_review = 1').run(baseSha, id);
       this.db.prepare('UPDATE reviews SET workspace_snapshot_tree = ?, workspace_missing_files = ?, updated_at = ? WHERE id = ?').run(head, JSON.stringify(missing), now(), id);
     })();
   }
@@ -785,6 +788,7 @@ export class ReviewStore {
     round: number,
     input: {
       headSha?: string | null;
+      baseSha?: string | null;
       note?: string | null;
       changedFiles?: readonly string[];
       codeChanged?: boolean;
@@ -796,6 +800,7 @@ export class ReviewStore {
       round,
       agent_session_id: null,
       head_sha: input.headSha ?? null,
+      base_sha: input.baseSha ?? null,
       status: 'scanning',
       note: input.note?.trim() || null,
       new_findings: 0,
@@ -826,6 +831,7 @@ export class ReviewStore {
              ended_at = NULL`,
         )
         .run(row);
+      this.db.prepare('UPDATE review_rounds SET base_sha = ? WHERE review_id = ? AND round = ?').run(row.base_sha ?? null, reviewId, round);
       this.db
         .prepare('UPDATE reviews SET current_round = ?, updated_at = ? WHERE id = ?')
         .run(round, ts, reviewId);

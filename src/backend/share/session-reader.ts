@@ -53,7 +53,7 @@ export class SharedSessionReader {
       repository: { path: review.repoPath, source: review.source, sourceRef: review.sourceRef },
       review: { id, title: review.title, mode: review.localReview ? 'local' : review.source === 'github-pr' ? 'remote' : 'local',
         parentReviewId: review.parentReviewId, workspaceRemoteId: review.workspaceRemoteId ?? null,
-        round: review.currentRound, head, reviewedHead: this.store.getRound(id, review.currentRound)?.headSha ?? null, baseRef: review.localBaseRef ?? review.baseRef, status: review.status,
+        round: review.currentRound, head, reviewedHead: this.store.getRound(id, review.currentRound)?.headSha ?? null, reviewedBase: this.store.getRound(id, review.currentRound)?.baseSha ?? null, baseRef: review.localBaseRef ?? review.baseRef, status: review.status,
         summary: review.summaryBody, summaryFiles: review.summaryFiles.filter((file) => !missing.has(file.path)), updatedAt: review.updatedAt },
       findings,
       discussions: this.store.listDiscussions(id).filter((discussion) => workspaceAnchorVisible(discussion, review, diff)).map((discussion) => ({ ...discussion,
@@ -61,32 +61,33 @@ export class SharedSessionReader {
         messages: this.store.listMessages(discussion.id),
       })),
       files: paths.map((file) => ({ path: file, status: diff.find((entry) => entry.path === file)?.status ?? 'context',
-        url: `${url}/file?path=${encodeURIComponent(file)}&head=${head ?? ''}&round=${review.currentRound}` })),
-      diffUrl: `${url}/diff?head=${head ?? ''}&round=${review.currentRound}`,
+        url: `${url}/file?path=${encodeURIComponent(file)}&head=${head ?? ''}&round=${review.currentRound}&base=${encodeURIComponent(review.localBaseRef ?? review.baseRef ?? '')}` })),
+      diffUrl: `${url}/diff?head=${head ?? ''}&round=${review.currentRound}&base=${encodeURIComponent(review.localBaseRef ?? review.baseRef ?? '')}`,
       usage: { transport: 'HTTP GET; 可使用 curl 或本机 HTTP 客户端,无需 computer-use',
         next: '先读取 discussions 中的用户评论,再按 files.url 获取审核版本文件。repository.path 是本机代码目录,修改前应核对实际文件内容。',
         lifetime: 'Duetlens 运行时可用;停止分享或删除会话后失效。',
         scope: '此链接只读取这一份审核视图,切换远端/本地不会改变它的指向。',
-        version: '文件和 diff 请求必须携带本次响应给出的 head 和 round;若返回 409,重新读取会话链接。' },
+        version: '文件和 diff 请求必须携带本次响应给出的 head、round 和 base;若返回 409,重新读取会话链接。' },
     };
   }
 
-  private checkVersion(review: Review, head: string | null, round: string | null): string {
+  private checkVersion(review: Review, head: string | null, round: string | null, base?: string | null): string {
     const currentHead = this.head(review);
+    if (base != null && base !== (review.localBaseRef ?? review.baseRef ?? '')) throw new ShareReadError(409, '审查基线已更新,请重新读取会话链接');
     if (!head || head !== currentHead || round !== String(review.currentRound)) throw new ShareReadError(409, '审核快照已更新或尚未建立,请重新读取会话链接');
     if (!/^[a-f0-9]{40,64}$/.test(head)) throw new ShareReadError(409, '审核快照标识不可用,请重新审核');
     return head;
   }
 
-  diff(id: string, head: string | null, round: string | null) {
+  diff(id: string, head: string | null, round: string | null, base?: string | null) {
     const review = this.review(id);
-    this.checkVersion(review, head, round);
+    this.checkVersion(review, head, round, base);
     return this.store.getRawDiff(id) ?? '';
   }
 
-  async file(id: string, file: string, head: string | null, round: string | null) {
+  async file(id: string, file: string, head: string | null, round: string | null, base?: string | null) {
     const review = this.review(id);
-    const revision = this.checkVersion(review, head, round);
+    const revision = this.checkVersion(review, head, round, base);
     const scope = this.files(review);
     if (!isShareFilePath(file) || !scope.paths.includes(file)) throw new ShareReadError(404, '文件不在此会话的改动或讨论范围内');
     if (scope.diff.some((entry) => entry.path === file && entry.binary)) throw new ShareReadError(415, '暂不支持读取二进制文件');
@@ -127,7 +128,7 @@ export class SharedSessionReader {
       } catch { throw new ShareReadError(404, '无法读取远端审核版本文件,请检查 gh 登录及该版本是否仍可访问'); }
     } else throw new ShareReadError(409, '会话没有关联可读取的代码仓库');
     if (content.includes('\0')) throw new ShareReadError(415, '暂不支持读取二进制文件');
-    this.checkVersion(this.review(id), head, round);
+    this.checkVersion(this.review(id), head, round, base);
     return { path: file, head: revision, round: review.currentRound, kind, content,
       editablePath: kind === 'file' && review.repoPath ? path.join(review.repoPath, file) : null,
       contentSource: review.workspaceHead && review.workspaceHead !== this.store.getRound(id, review.currentRound)?.headSha ? 'workspace-snapshot' : 'reviewed-snapshot',

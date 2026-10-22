@@ -25,7 +25,7 @@ async function main() {
   const source = new LocalWorktreeSource({ source: 'local-worktree', ref: '', repoPath: repo });
   const prepared = await source.prepare(); const raw = await source.getDiff();
   const store = new ReviewStore(db);
-  const remote = store.createReview({ source: 'github-pr', sourceRef: 'test/repo#1', repoPath: repo, status: 'reviewing' });
+  const remote = store.createReview({ source: 'github-pr', sourceRef: 'test/repo#1', baseRef: base, repoPath: repo, status: 'reviewing' });
   const local = store.createWorkspaceLocal(remote.id, repo, base, raw, prepared.headSha!);
   store.startRound(local.id, 1, { headSha: prepared.headSha }); store.finishRound(local.id, 1, 'done');
   await source.saveSnapshot(path.join(snapshots, local.id)); await source.dispose();

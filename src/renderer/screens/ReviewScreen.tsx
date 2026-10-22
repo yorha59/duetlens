@@ -1303,7 +1303,7 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
-            notice={localRefreshError ? `本地刷新失败：${localRefreshError}` : review?.workspaceHead && review.workspaceHead !== rounds.at(-1)?.headSha ? '本地工作区已更新 · 已删除文件的批注和结论已隐藏；其余结论待增量复审。' : rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
+            notice={localRefreshError ? `本地刷新失败：${localRefreshError}` : review?.workspaceHead && (review.workspaceHead !== rounds.at(-1)?.headSha || (review.localReview && review.localBaseRef !== rounds.at(-1)?.baseSha)) ? '本地工作区或基线已更新 · 旧结论来自上次审核快照；请复审当前 PR 改动。' : rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
             renderFileActions={(path, line) => <OpenFileButton reviewId={reviewId} path={path} line={line} hasLocalRepo={!!review?.repoPath} />}
             onOpenLine={async (path, line) => {
               const result = await window.duetlens.editor.openFile(reviewId, path, false, line);
