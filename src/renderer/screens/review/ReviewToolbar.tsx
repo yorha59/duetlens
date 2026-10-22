@@ -67,9 +67,9 @@ export function ReviewToolbar({ actions, middle }: { actions: ToolbarAction[]; m
     return () => { header.classList.remove('toolbar-drag-active'); header.removeEventListener('dragover', overHeader); header.removeEventListener('drop', dropHeader); };
   }, [dragging, pinned, actions]);
   const item = (action: ToolbarAction, fixed: boolean) => <div className="review-toolbar-item" key={action.id} draggable onDragStart={(event) => { event.dataTransfer.setData(DRAG_TYPE, action.id); event.dataTransfer.effectAllowed = 'move'; lastDrag.current = Date.now(); setDragging(action.id); setOpen(true); }} onDragEnd={() => { lastDrag.current = Date.now(); setDragging(null); }} onDragOver={allow} onDrop={(event) => drop(event, fixed, fixed ? action.id : undefined)}>
-    <span className="review-toolbar-grip" title={`拖动${action.label}以固定或收起`} aria-hidden="true">⠿</span>
+    {!fixed && <span className="review-toolbar-grip" title={`拖动${action.label}以固定或收起`} aria-hidden="true">⠿</span>}
     <div className="review-toolbar-control">{action.content}</div>
-    <button className="review-toolbar-pin" type="button" title={fixed ? `将${action.label}收回菜单` : `将${action.label}固定到顶部`} aria-label={fixed ? `收起${action.label}` : `固定${action.label}`} onClick={() => move(action.id, !fixed)}>{fixed ? '−' : '＋'}</button>
+    {!fixed && <button className="review-toolbar-pin" type="button" title={`将${action.label}固定到顶部`} aria-label={`固定${action.label}`} onClick={() => move(action.id, true)}>＋</button>}
   </div>;
   const hidden = actions.filter((action) => !pinned.includes(action.id));
   return <div className={`review-toolbar-layout${dragging ? ' dragging' : ''}`} ref={root} onClickCapture={(event) => { if (Date.now() - lastDrag.current < 250) { event.preventDefault(); event.stopPropagation(); } }} onClick={(event) => { if ((event.target as Element).closest('.review-toolbar-control button')) setOpen(false); }}>
@@ -82,7 +82,7 @@ export function ReviewToolbar({ actions, middle }: { actions: ToolbarAction[]; m
     <button ref={trigger} type="button" className="rerun-cta review-toolbar-trigger" aria-expanded={open} aria-controls={menuId} onClick={() => setOpen(!open)} onDragEnter={() => { if (dragging) setOpen(true); }}>更多 ···</button>
     <div id={menuId} className="review-toolbar-menu" hidden={!open} onDragOver={allow} onDrop={(event) => drop(event, false)}>
       <div className="review-toolbar-menu-title">工具栏操作 <button type="button" onClick={() => save([])}>全部收起</button></div>
-      <p>拖动整项到顶部空白处固定,拖回这里收起；也可点击 ＋ / −。</p>
+      <p>拖动整项到顶部空白处固定,拖回这里收起；也可点击 ＋ 固定。</p>
       {hidden.map((action) => item(action, false))}
       {!hidden.length && <p>操作已全部固定,可拖回这里。</p>}
       {dragging && <div className="review-toolbar-drop">拖到这里收回菜单</div>}
