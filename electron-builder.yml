@@ -55,6 +55,6 @@ mac:
 # electron-updater 不读 draft,所以点之前老用户不会收到推送。
 publish:
   provider: github
-  owner: xieziyu
+  owner: yorha59
   repo: duetlens
   releaseType: draft

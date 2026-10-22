@@ -1,4 +1,6 @@
 import { app } from 'electron';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import electronUpdater from 'electron-updater';
 import type { UpdateStatus } from '@shared/update';
 
@@ -33,7 +35,9 @@ export interface Updater {
  * dev 下没有 app-update.yml,直接停在 unsupported,别让 updater 在开发态刷错误。
  */
 export function createUpdater({ onStatus, cleanup }: UpdaterDeps): Updater {
-  let status: UpdateStatus = { phase: app.isPackaged ? 'idle' : 'unsupported' };
+  // 本地 --dir 包不带更新元数据,与开发态一样不启用自动更新。
+  const supported = app.isPackaged && existsSync(path.join(process.resourcesPath, 'app-update.yml'));
+  let status: UpdateStatus = { phase: supported ? 'idle' : 'unsupported' };
   let timer: NodeJS.Timeout | undefined;
 
   function set(next: UpdateStatus): void {
@@ -41,7 +45,7 @@ export function createUpdater({ onStatus, cleanup }: UpdaterDeps): Updater {
     onStatus(next);
   }
 
-  if (!app.isPackaged) {
+  if (!supported) {
     return {
       getStatus: () => status,
       check: () => undefined,

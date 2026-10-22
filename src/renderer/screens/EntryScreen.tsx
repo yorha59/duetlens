@@ -98,6 +98,7 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
   const [inspection, setInspection] = useState<RepoInspection | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const [forceLocal, setForceLocal] = useState(false);
+  const [localChanges, setLocalChanges] = useState(true);
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
 
   // 审核配置
@@ -268,17 +269,17 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
 
   const repoMode: RepoMode = forceLocal ? 'local' : inspection?.mode ?? 'local';
   const source: SourceKind =
-    tab === 'github-pr' ? 'github-pr' : repoMode === 'gitbutler' ? 'gitbutler-vbranch' : 'local-branch';
+    tab === 'github-pr' ? 'github-pr' : localChanges ? 'local-worktree' : repoMode === 'gitbutler' ? 'gitbutler-vbranch' : 'local-branch';
 
   // **发起用已解析出的引用,不用输入框原文**。原文允许只写 `#123`,后端会拿 repoPath 再推一次
   // owner/repo —— 于是「屏上显示 A#123、审的却是 B#123」只需要中途换一次本地路径就能发生
   // (换路径不改查询串,旧 preview 不作废,发起门槛也一直开着)。
   // 身份在解析那一刻就钉死,展示与提交同源,这条缝就不存在了。
-  const startRef = tab === 'github-pr' ? ghResolvedRef : ref.trim();
+  const startRef = tab === 'github-pr' ? ghResolvedRef : localChanges ? '未提交改动' : ref.trim();
   const target = useTargetLabel(source, startRef, tab === 'github-pr' ? headRef : '');
   const atCapacity = isAtCapacity(capacity);
   const canStart =
-    !busy && !atCapacity && !!startRef && (tab === 'github-pr' || !!repoPath.trim());
+    !busy && !atCapacity && !!startRef && (tab === 'github-pr' || (!!repoPath.trim() && (!localChanges || (!inspecting && inspection?.isGit === true && inspection.repoPath === repoPath.trim()))));
 
   const start = async () => {
     const startId = newStartId();
@@ -292,7 +293,7 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
       source,
       ref: startRef,
       repoPath: repoPath.trim() || undefined,
-      baseRef: baseRef.trim() || undefined,
+      baseRef: source === 'local-worktree' ? undefined : baseRef.trim() || undefined,
       headRef: headRef.trim() || undefined,
       agent,
       model: trimmedModel || undefined,
@@ -400,6 +401,8 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
           />
         ) : (
           <RepoPanel
+            localChanges={localChanges}
+            setLocalChanges={setLocalChanges}
             source={source}
             repoPath={repoPath}
             pickDir={pickDir}
@@ -1093,6 +1096,8 @@ function GitHubPanel({
 
 // ---------- 本地仓库 panel(模式由探测结果决定:虚拟分支 / 普通 git 分支)----------
 function RepoPanel({
+  localChanges,
+  setLocalChanges,
   source,
   repoPath,
   pickDir,
@@ -1108,6 +1113,8 @@ function RepoPanel({
   baseRef,
   setBaseRef,
 }: {
+  localChanges: boolean;
+  setLocalChanges: (value: boolean) => void;
   source: SourceKind;
   repoPath: string;
   pickDir: () => void;
@@ -1130,7 +1137,7 @@ function RepoPanel({
 
   // 普通 git 分支模式才列分支;vbranch 列表随探测一并回来,无需再拉
   const isGit = inspection?.isGit ?? false;
-  const listing = mode === 'local' && isGit;
+  const listing = !localChanges && mode === 'local' && isGit;
   const listKey = `${repoPath.trim()}\u0000${baseRef.trim()}`;
   const branchList = list?.key === listKey ? list.value : null;
   // 探测结果同理:inspect 回的是归一后的仓库路径,和当前路径对不上就是上一个仓库的
@@ -1191,7 +1198,7 @@ function RepoPanel({
 
   // 默认选中:普通 git 取 HEAD 所在分支,虚拟分支取第一条 —— 进屏即有目标,底部 CTA 不再是灰的
   useEffect(() => {
-    if (pending) return;
+    if (pending || localChanges) return;
     if (!options.length) {
       if (selected) setSelected('');
       return;
@@ -1199,7 +1206,7 @@ function RepoPanel({
     if (!options.some((o) => o.name === selected)) {
       setSelected((options.find((o) => o.isHead) ?? options[0]).name);
     }
-  }, [options, pending, selected, setSelected]);
+  }, [options, pending, localChanges, selected, setSelected]);
 
   const current = options.find((o) => o.name === selected) ?? null;
 
@@ -1220,16 +1227,16 @@ function RepoPanel({
   // 候选**合法地为空**也要清(stack 最底层那条且读不到 targetRef),所以必须等候选到手再判,
   // 不能拿「空集」当「还没加载」搪塞 —— `pending` 就是这道闸。
   useEffect(() => {
-    if (pending || !baseRef) return;
+    if (pending || localChanges || !baseRef) return;
     if (!baseOptions.some((o) => o.ref === baseRef)) setBaseRef('');
-  }, [pending, baseOptions, baseRef, setBaseRef]);
+  }, [pending, localChanges, baseOptions, baseRef, setBaseRef]);
 
   const stat = useDiffStat({
     source,
-    ref: selected,
+    ref: localChanges ? '未提交改动' : selected,
     repoPath: repoPath.trim(),
-    baseRef,
-    enabled: !pending && !!selected,
+    baseRef: localChanges ? '' : baseRef,
+    enabled: !pending && isGit && (localChanges || !!selected),
   });
 
   if (!repoPath.trim()) {
@@ -1237,7 +1244,7 @@ function RepoPanel({
       <div className="src-panel">
         <PickRepoEmpty
           pickDir={pickDir}
-          hint="选择一个本地 git 仓库;在 gitbutler/workspace 分支上将按虚拟分支审核"
+          hint="选择本地 git 仓库,审核未提交改动或分支提交;无需推送到 GitHub"
         />
         {recentRepos.length > 0 && (
           <div className="recent-repos">
@@ -1286,7 +1293,25 @@ function RepoPanel({
         </div>
       )}
 
-      {insp?.degraded && (
+      {insp?.isGit && (
+        <div className="picker-row">
+          <span className="lbl w">审核范围</span>
+          <div className="local-scope" role="group" aria-label="本地审核范围">
+            <button type="button" className={localChanges ? 'on' : ''} aria-pressed={localChanges} onClick={() => setLocalChanges(true)}>未提交改动</button>
+            <button type="button" className={!localChanges ? 'on' : ''} aria-pressed={!localChanges} onClick={() => setLocalChanges(false)}>分支提交</button>
+          </div>
+        </div>
+      )}
+      {insp?.isGit && localChanges && (
+        <div className="local-review-summary derived">
+          相对当前 HEAD 审核暂存区、工作区和未忽略的新增文件。启动时固定代码快照,不修改本地文件或暂存区。
+          {stat.state === 'value' && <span className="basemetric mono">{stat.value.files} files · +{stat.value.additions} −{stat.value.deletions}</span>}
+          {stat.state === 'loading' && <Busy>计量中…</Busy>}
+          {stat.state === 'error' && <span className="start-error">{stat.message}</span>}
+        </div>
+      )}
+
+      {!localChanges && insp?.degraded && (
         <div className="gb-hint warn derived">
           ⎇ 当前在 <code className="mono">gitbutler/workspace</code> 分支,但
           {insp.degraded === 'but-missing' ? '未找到 but CLI' : '该目录不是 GitButler 项目(未 setup)'} ·
@@ -1294,7 +1319,7 @@ function RepoPanel({
         </div>
       )}
 
-      {mode === 'gitbutler' && gb && (
+      {!localChanges && mode === 'gitbutler' && gb && (
         <div className="gb-hint derived">
           ⎇ GitButler workspace · <b>{gb.repoName}</b> · {gb.branches.length} 个 virtual branch ·{' '}
           <button type="button" className="link-btn" onClick={() => setForceLocal(true)}>
@@ -1302,7 +1327,7 @@ function RepoPanel({
           </button>
         </div>
       )}
-      {forceLocal && insp?.mode === 'gitbutler' && (
+      {!localChanges && forceLocal && insp?.mode === 'gitbutler' && (
         <div className="gb-hint derived">
           ⎇ 已改按普通 git 分支审核 ·{' '}
           <button type="button" className="link-btn" onClick={() => setForceLocal(false)}>
@@ -1311,7 +1336,7 @@ function RepoPanel({
         </div>
       )}
 
-      {insp && (listing || mode === 'gitbutler') && (
+      {!localChanges && insp && (listing || mode === 'gitbutler') && (
         <>
           <div className="picker-row">
             <span className="lbl w">审核分支</span>
@@ -1502,6 +1527,7 @@ function useTargetLabel(source: SourceKind, ref: string, headRef = ''): string {
       const pin = headRef.trim() ? ` @${shortOid(headRef.trim())}` : '';
       return num ? `GitHub #${num}${pin}` : `GitHub ${r}${pin}`;
     }
+    if (source === 'local-worktree') return '本地未提交改动';
     if (source === 'local-branch') return `本地 ${r}`;
     return `vbranch ${r}`;
   }, [source, ref, headRef]);

@@ -101,7 +101,7 @@ export function HistoryScreen({ onOpen }: { onOpen: (id: string) => void }): Rea
   const q = query.trim().toLowerCase();
   const matches = useCallback(
     (r: RecentReview): boolean => {
-      if (srcFilter !== 'all' && r.source !== srcFilter) return false;
+      if (srcFilter !== 'all' && r.source !== srcFilter && !(srcFilter === 'local-branch' && r.source === 'local-worktree')) return false;
       if (statFilter !== 'all' && statusGroup(r.status) !== statFilter) return false;
       if (q) {
         const hay = `${r.title ?? ''} ${repoName(r) ?? r.source} ${r.sourceRef}`.toLowerCase();

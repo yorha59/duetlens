@@ -1000,6 +1000,9 @@ export class ReviewManager extends EventEmitter {
       // 预取 diff 落库:MCP 与 renderer 共用同一份,省 codex 侧一次 get_diff 往返。
       onStage?.('diff');
       const rawDiff = await source.getDiff();
+      if (target.source === 'local-worktree' && !rawDiff.trim()) {
+        throw new Error('当前目录没有未提交改动,无需审核。');
+      }
       onStage?.('record');
       review = this.store.createReview({
         source: target.source,

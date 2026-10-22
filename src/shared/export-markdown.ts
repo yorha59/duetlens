@@ -43,6 +43,7 @@ const SEV_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const SOURCE_LABEL: Record<SourceKind, string> = {
   'github-pr': 'GitHub PR',
   'local-branch': '本地分支',
+  'local-worktree': '本地未提交改动',
   'gitbutler-vbranch': 'GitButler 虚拟分支',
 };
 

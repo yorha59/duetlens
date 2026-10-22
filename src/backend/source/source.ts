@@ -34,7 +34,7 @@ export interface PreparedSource {
   /** codex 会话的工作目录 */
   cwd: string;
   /**
-   * 被审代码的 head commit;复审时与上一轮比对即知代码有无变化。
+   * 被审代码的 head commit,或未提交改动快照的 tree hash;复审时可比对内容。
    * 无稳定 commit 概念的 source(如工作区未提交改动)可为空,此时降级为「无法判定」。
    */
   headSha?: string | null;

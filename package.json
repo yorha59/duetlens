@@ -1,7 +1,7 @@
 {
   "name": "duetlens",
   "productName": "Duetlens",
-  "version": "0.12.0",
+  "version": "0.12.0-fork.1",
   "description": "Conversational code review — human and agent reviewing together (full rewrite of better-review)",
   "main": "out/main/index.js",
   "private": true,
@@ -30,6 +30,7 @@
     "spike:resume": "tsx scripts/spike-resume.ts",
     "spike:gitbutler": "tsx scripts/spike-gitbutler.ts",
     "spike:source": "tsx scripts/spike-source.ts",
+    "spike:worktree": "tsx scripts/spike-worktree-source.ts",
     "spike:base-ref": "tsx scripts/spike-base-ref.ts",
     "spike:mcp": "tsx scripts/spike-mcp.ts",
     "spike:session-events": "tsx scripts/spike-session-events.ts",

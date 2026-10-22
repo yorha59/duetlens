@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { AgentErrorKind } from './agent-events';
 
 // ---- 枚举 ----
-export const SOURCE_KINDS = ['github-pr', 'local-branch', 'gitbutler-vbranch'] as const;
+export const SOURCE_KINDS = ['github-pr', 'local-branch', 'local-worktree', 'gitbutler-vbranch'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export const SEVERITIES = ['high', 'medium', 'low'] as const;

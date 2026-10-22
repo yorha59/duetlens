@@ -1,6 +1,7 @@
 import { GitButlerSource } from './gitbutler-source';
 import { GitHubPrSource } from './github-pr-source';
 import { LocalGitSource } from './local-git-source';
+import { LocalWorktreeSource } from './local-worktree-source';
 import type { ReviewTarget, Source } from './source';
 
 /** 按 target.source 选具体实现。 */
@@ -10,6 +11,8 @@ export function createSource(target: ReviewTarget): Source {
       return new GitHubPrSource(target);
     case 'local-branch':
       return new LocalGitSource(target);
+    case 'local-worktree':
+      return new LocalWorktreeSource(target);
     case 'gitbutler-vbranch':
       return new GitButlerSource(target);
     default:
