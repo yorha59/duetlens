@@ -60,6 +60,8 @@ async function main() {
   assert.equal(await manager.getFileContent(local.id, 'new-untracked.ts'), 'untracked content\n');
   assert.equal(store.getRound(local.id, 1)?.baseSha, oldBase);
   const second = await fetch(url); assert.equal(second.status, 200); assert.equal(metadataReads, 1, 'no network metadata polling on each read');
+  await manager.refreshLocal(local.id, true);
+  assert.equal(metadataReads, 2, 'manual refresh bypasses the cached PR target metadata');
   assert.deepEqual(await readFile(path.join(repo, '.git/index')), index); assert.equal(await git('status', '--porcelain=v1'), status);
   // HEAD 与文件内容都不动,只更新跟踪分支也必须重算基线和 diff。
   await git('update-ref', 'refs/remotes/origin/main', oldBase); await manager.refreshLocal(local.id);

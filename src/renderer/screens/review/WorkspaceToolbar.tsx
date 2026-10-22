@@ -4,7 +4,8 @@ import type { WorkspaceState, WorkspaceSyncStatus } from '@shared/ipc';
 import { WorkspacePanel } from './WorkspacePanel';
 import './WorkspacePanel.css';
 
-export function WorkspaceToolbar({ review, state, onChange, onModalChange, onApplied }: {
+export function WorkspaceToolbar({ review, state, onChange, onModalChange, onApplied, refreshKey = 0 }: {
+  refreshKey?: number;
   review: Review; state: WorkspaceState | null; onChange: (state: WorkspaceState) => void; onModalChange: (open: boolean) => void; onApplied: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -25,11 +26,8 @@ export function WorkspaceToolbar({ review, state, onChange, onModalChange, onApp
     };
     refresh.current = check;
     check();
-    window.addEventListener('focus', check);
-    document.addEventListener('visibilitychange', check);
-    const timer = window.setInterval(() => { if (!document.hidden) check(); }, 30_000);
-    return () => { alive = false; window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); window.clearInterval(timer); };
-  }, [review.id, state?.localId]);
+    return () => { alive = false; };
+  }, [review.id, state?.localId, refreshKey]);
   const pick = async (mode: 'local' | 'remote') => {
     if (busy || state?.activeMode === mode) return;
     if (mode === 'local' && !state?.localId && !review.repoPath) { setOpen(true); return; }

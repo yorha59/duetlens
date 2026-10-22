@@ -36,7 +36,7 @@ export interface IpcDeps {
 
 /** 注册 main 侧全部 IPC handler,并把 ReviewManager 事件转发给 renderer。 */
 export function registerIpcHandlers({ manager, broadcast, updater, shareServer }: IpcDeps): void {
-  ipcMain.handle(IpcChannels.reviewRefreshLocal, (_event, id: string) => manager.refreshLocal(id));
+  ipcMain.handle(IpcChannels.reviewRefreshLocal, (_event, id: string, forceMetadata?: boolean) => manager.refreshLocal(id, forceMetadata));
   ipcMain.handle(IpcChannels.reviewShare, async (_event, id: string) => {
     const result = await shareServer.share(id);
     clipboard.writeText(result.url);

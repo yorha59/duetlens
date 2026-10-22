@@ -326,7 +326,7 @@ export class ReviewManager extends EventEmitter {
     return selected;
   }
 
-  async refreshLocal(reviewId: string) {
+  async refreshLocal(reviewId: string, forceMetadata = false) {
     const review = this.store.getReview(reviewId);
     if (!review || (!review.localReview && review.source !== 'local-worktree') || !review.repoPath) return { changed: false };
     if (this.workspaceBusy.has(reviewId) || this.sessions.get(reviewId)?.isBusy() || review.status === 'scanning') return { changed: false, deferred: true };
@@ -334,7 +334,7 @@ export class ReviewManager extends EventEmitter {
     let source: Source | undefined;
     try {
       const anchored = [...new Set([...this.store.listFindings(reviewId).map((finding) => finding.file), ...this.store.listDiscussions(reviewId).map((discussion) => discussion.file).filter((file): file is string => !!file)])].sort();
-      const base = review.localReview ? await this.prWorkspace.reviewBase(review) : undefined;
+      const base = review.localReview ? await this.prWorkspace.reviewBase(review, forceMetadata) : undefined;
       const fingerprint = `${base ?? ''}:${await worktreeFingerprint(review.repoPath)}:${JSON.stringify(anchored)}`;
       if (this.localFingerprints.get(reviewId) === fingerprint) return { changed: false };
       source = this.makeSource({ ...targetOf(review, this.snapshotRoot), ...(base ? { baseRef: base } : {}), materialize: false });

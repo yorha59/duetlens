@@ -472,7 +472,7 @@ export interface DuetlensApi {
     listRecent(): Promise<RecentReview[]>;
     get(id: string): Promise<Review | null>;
     /** 复制当前视图的本机实时读取链接。 */
-    refreshLocal(reviewId: string): Promise<{ changed: boolean; deferred?: boolean }>;
+    refreshLocal(reviewId: string, forceMetadata?: boolean): Promise<{ changed: boolean; deferred?: boolean }>;
     shareSession(reviewId: string): Promise<{ url: string }>;
     revokeShare(reviewId: string): Promise<void>;
     findings(reviewId: string): Promise<Finding[]>;

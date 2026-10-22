@@ -81,7 +81,7 @@ export class PrWorkspace {
   }
 
   /** 本地展示允许 rebase 后的分支;不要求尚未推送的 HEAD 是旧 PR head 的后代。 */
-  async reviewBase(review: Review): Promise<string> {
+  async reviewBase(review: Review, forceMetadata = false): Promise<string> {
     if (!review.repoPath) throw new Error('本地仓库未关联');
     const git = (args: string[]) => this.run('git', ['--no-optional-locks', ...args], review.repoPath!);
     if (review.baseRef) {
@@ -90,7 +90,7 @@ export class PrWorkspace {
     }
     const key = `${review.sourceRef}:${review.repoPath}`;
     let cached = this.baseMetadata.get(key);
-    if (!cached || Date.now() - cached.at > 60_000) {
+    if (forceMetadata || !cached || Date.now() - cached.at > 60_000) {
       cached = { at: Date.now(), pr: await this.getPr(review.sourceRef, review.repoPath) };
       this.baseMetadata.set(key, cached);
     }

@@ -125,6 +125,8 @@ export function ReviewScreen(props: {
   const { reviewId, onScopeChange, scopeRequest, onScopeHandled } = props;
   // 容器那条 review 只为判断「这枚 tab 有没有范围可切」;三栏的数据源在 ReviewPane 里各自拉。
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [workspaceRefresh, setWorkspaceRefresh] = useState(0);
+  const onLocalRefreshed = useCallback(() => setWorkspaceRefresh((value) => value + 1), []);
   const [workspaceModal, setWorkspaceModal] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [container, setContainer] = useState<Review | null>(null);
@@ -363,9 +365,10 @@ export function ReviewScreen(props: {
       reviewId={scopeReviewId ?? reviewId}
       focusRequest={scopeSettled ? props.focusRequest : null}
       scope={scope}
+      onLocalRefreshed={onLocalRefreshed}
       workspaceModal={workspaceModal}
       workspaceToolbar={container?.source === 'github-pr' && !container.headRef && !container.parentReviewId ?
-        <WorkspaceToolbar review={container} state={workspace} onChange={setWorkspace} onModalChange={setWorkspaceModal} onApplied={() => { setActiveSha(null); setScopeId(null); if (reviewId) void window.duetlens.review.setActiveScope(reviewId, null); setWorkspaceRevision((revision) => revision + 1); }} /> : null}
+        <WorkspaceToolbar refreshKey={workspaceRefresh} review={container} state={workspace} onChange={setWorkspace} onModalChange={setWorkspaceModal} onApplied={() => { setActiveSha(null); setScopeId(null); if (reviewId) void window.duetlens.review.setActiveScope(reviewId, null); setWorkspaceRevision((revision) => revision + 1); }} /> : null}
     />
   );
 }
@@ -383,6 +386,7 @@ function ReviewPane({
   scope,
   workspaceToolbar,
   workspaceModal,
+  onLocalRefreshed,
 }: {
   reviewId: string | null;
   onOpenSubmit?: () => void;
@@ -400,6 +404,7 @@ function ReviewPane({
   onUnsavedChange?: (hasUnsaved: boolean) => void;
   /** 范围切换绑定;这条 review 不是 PR 容器时为 null(没有范围这回事) */
   scope?: ScopeBinding | null;
+  onLocalRefreshed?: () => void;
   workspaceToolbar?: ReactNode;
   workspaceModal?: boolean;
 }) {
@@ -908,23 +913,27 @@ function ReviewPane({
   }, [review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
 
   const [localRefreshError, setLocalRefreshError] = useState('');
+  const [localRefreshing, setLocalRefreshing] = useState(false);
+  const localRefreshInFlight = useRef(false);
+  const refreshLocal = useCallback(async (forceMetadata = false) => {
+    if (!reviewId || localRefreshInFlight.current) return;
+    if (draftFlags.current.annotate || draftFlags.current.composer) {
+      setLocalRefreshError('请先保存或取消当前批注草稿,再刷新本地代码');
+      return;
+    }
+    localRefreshInFlight.current = true;
+    setLocalRefreshing(true); setLocalRefreshError('');
+    try {
+      const result = await window.duetlens.review.refreshLocal(reviewId, forceMetadata);
+      if (result.deferred) setLocalRefreshError('审核或同步正在进行中,请结束后再刷新');
+      else onLocalRefreshed?.();
+    } catch (error) { setLocalRefreshError((error as Error).message); }
+    finally { localRefreshInFlight.current = false; setLocalRefreshing(false); }
+  }, [reviewId, onLocalRefreshed]);
+  // 进入本地视图时检查一次;空闲期间不定时运行 Git,后续由用户手动刷新。
   useEffect(() => {
-    if (!reviewId || !active || (!review?.localReview && review?.source !== 'local-worktree')) return;
-    let alive = true;
-    let checking = false;
-    const refresh = () => {
-      if (!alive || checking || document.hidden || draftFlags.current.annotate || draftFlags.current.composer) return;
-      checking = true;
-      void window.duetlens.review.refreshLocal(reviewId).then(() => { if (alive) setLocalRefreshError(''); })
-        .catch((error: Error) => { if (alive) setLocalRefreshError(error.message); })
-        .finally(() => { checking = false; });
-    };
-    refresh();
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
-    const timer = window.setInterval(refresh, 5000);
-    return () => { alive = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
-  }, [reviewId, active, review?.localReview, review?.source]);
+    if (active && (review?.localReview || review?.source === 'local-worktree')) void refreshLocal();
+  }, [active, review?.localReview, review?.source, refreshLocal]);
 
   // scope 每次渲染都是新对象,直接进上面那个 effect 的依赖会让全局键 handler 每帧重注册
   const stepScope = scope?.onStep;
@@ -1175,6 +1184,11 @@ function ReviewPane({
         <span className="spacer" />
         {review && <ShareSessionButton reviewId={review.id} />}
         {workspaceToolbar}
+        {(review?.localReview || review?.source === 'local-worktree') && <button
+          className="rerun-cta" type="button" onClick={() => void refreshLocal(true)}
+          disabled={localRefreshing || scanning}
+          title="刷新本地文件、审查基线及同步状态,不会启动 agent"
+        >{localRefreshing ? '刷新中…' : '刷新本地代码'}</button>}
         {/* 还没机审过就没有「上一轮」可带,重跑那颗按钮在这里指向一件不存在的事 */}
         {!unscanned && (
           <button
