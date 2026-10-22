@@ -1,0 +1,24 @@
+.codex-chat { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.codex-chat-toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.codex-chat-toolbar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codex-chat button, .codex-chat-empty button { color: inherit; background: transparent; border: 1px solid var(--border, #394354); border-radius: 6px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.codex-chat button:disabled { opacity: .45; cursor: default; }
+.codex-chat-messages { flex: 1; min-height: 0; overflow: auto; padding: 12px; overflow-anchor: none; }
+.codex-chat-message { margin: 0 0 16px; overflow-wrap: anywhere; }
+.codex-chat-message header { font-size: 11px; opacity: .65; margin-bottom: 6px; }
+.codex-chat-message.user { background: var(--surface, #ffffff08); border: 1px solid var(--border, #394354); border-radius: 8px; padding: 10px; }
+.codex-chat-message pre { overflow: auto; max-width: 100%; }
+.codex-chat-message .c-prose { font-size: 13px; line-height: 1.65; }
+.codex-chat-compose { border-top: 1px solid var(--border, #394354); padding: 12px; }
+.codex-chat-compose textarea { background: transparent; color: inherit; font: inherit; width: 100%; box-sizing: border-box; min-height: 90px; max-height: 260px; resize: vertical; border: 1px solid var(--border, #394354); border-radius: 8px; padding: 10px; }
+.codex-chat-send { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; }
+.codex-chat-send span, .codex-chat-hint { opacity: .65; font-size: 11px; }
+.codex-chat-selections { max-height: 170px; overflow: auto; margin-bottom: 8px; }
+.codex-chat-selections-label { font-size: 11px; opacity: .65; margin: 0 0 6px; }
+.codex-chat-selection { display: flex; align-items: start; gap: 6px; padding: 6px; border: 1px solid var(--border, #394354); border-radius: 6px; margin-bottom: 5px; }
+.codex-chat-selection details { flex: 1; min-width: 0; font-size: 12px; }
+.codex-chat-selection summary { cursor: pointer; overflow-wrap: anywhere; }
+.codex-chat-selection pre { max-height: 150px; overflow: auto; white-space: pre; }
+.codex-chat-activity, .codex-chat-error { padding: 8px 12px; font-size: 12px; overflow-wrap: anywhere; }
+.codex-chat-error { color: var(--red, #f08888); }
+.codex-chat-empty { padding: 20px; font-size: 13px; line-height: 1.7; }

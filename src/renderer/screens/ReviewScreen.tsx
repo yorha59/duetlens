@@ -1,5 +1,6 @@
 import type { CodexBinding } from '@shared/codex-handoff';
 import { CodexSessionButton } from './review/CodexSessionButton';
+import { CodexChatPane } from './review/CodexChatPane';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewIntensity, Severity, Triage, UiSettings } from '@shared/domain';
 import { AGENT_LABELS, DEFAULT_UI_SETTINGS, INTENSITY_LABELS, isUnscanned, VERDICT_LABELS } from '@shared/domain';
@@ -68,7 +69,7 @@ const LEFT_MAX = 460;
 const RIGHT_MIN = 300;
 const RIGHT_MAX = 620;
 
-type RightTab = 'discussion' | 'findings' | 'summary';
+type RightTab = 'discussion' | 'findings' | 'summary' | 'codex';
 
 /** 去掉一个键;键不在就原样返回,避免白白换掉引用触发下游重渲染。 */
 function dropKey<T>(map: Record<string, T>, key: string): Record<string, T> {
@@ -78,7 +79,7 @@ function dropKey<T>(map: Record<string, T>, key: string): Record<string, T> {
   return rest;
 }
 
-const RIGHT_TABS: RightTab[] = ['discussion', 'findings', 'summary'];
+const RIGHT_TABS: RightTab[] = ['discussion', 'findings', 'summary', 'codex'];
 const isRightTab = (t: string | null): t is RightTab => t !== null && RIGHT_TABS.includes(t as RightTab);
 
 /**
@@ -914,7 +915,9 @@ function ReviewPane({
     if (activePath && review.workspaceMissingFiles.includes(activePath) && !diff.some((file) => file.path === activePath)) setActivePath(diff[0]?.path ?? null);
   }, [review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
 
-  const [codexBinding, setCodexBinding] = useState<CodexBinding | null>(null);
+  const [codexBindingState, setCodexBindingState] = useState<{ reviewId: string; binding: CodexBinding | null } | null>(null);
+  const codexBinding = codexBindingState?.reviewId === reviewId ? codexBindingState.binding : null;
+  const setCodexBinding = useCallback((binding: CodexBinding | null) => setCodexBindingState(reviewId ? { reviewId, binding } : null), [reviewId]);
   const [codexBindingOpen, setCodexBindingOpen] = useState(false);
   const [localRefreshError, setLocalRefreshError] = useState('');
   const [localRefreshing, setLocalRefreshing] = useState(false);
@@ -1186,7 +1189,7 @@ function ReviewPane({
           {pr?.nwo && <span className="mono nwo">{pr.nwo}</span>}
         </div>
         <span className="spacer" />
-        {review && <CodexSessionButton reviewId={review.id} binding={codexBinding} onBinding={setCodexBinding} open={codexBindingOpen} onOpen={setCodexBindingOpen} />}
+        {review && <CodexSessionButton reviewId={review.id} binding={codexBinding} onBinding={setCodexBinding} open={codexBindingOpen} onOpen={setCodexBindingOpen} onShowChat={() => setTab('codex')} />}
         {review && <ShareSessionButton reviewId={review.id} />}
         {workspaceToolbar}
         {(review?.localReview || review?.source === 'local-worktree') && <button
@@ -1322,7 +1325,10 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
-            onAddToCodex={codexBinding && reviewId ? async (anchor, text) => (await window.duetlens.review.addToCodex(reviewId, { ...anchor, text })).message : undefined}
+            onAddToCodex={codexBinding && reviewId ? async (anchor, text) => {
+              const result = await window.duetlens.review.addToCodex(reviewId, { ...anchor, text });
+              setTab('codex'); return result.message;
+            } : undefined}
             notice={localRefreshError ? `本地刷新失败：${localRefreshError}` : review?.workspaceHead && (review.workspaceHead !== rounds.at(-1)?.headSha || (review.localReview && review.localBaseRef !== rounds.at(-1)?.baseSha)) ? '本地工作区或基线已更新 · 旧结论来自上次审核快照；请复审当前 PR 改动。' : rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
             renderFileActions={(path, line) => <OpenFileButton reviewId={reviewId} path={path} line={line} hasLocalRepo={!!review?.repoPath} />}
             onOpenLine={async (path, line) => {
@@ -1371,6 +1377,7 @@ function ReviewPane({
             onCommit={(w) => update({ rightWidth: w })}
           />
           <RightPanel
+            codexChat={<CodexChatPane key={`${reviewId}:${codexBinding?.threadId ?? ''}`} reviewId={reviewId} binding={codexBinding} active={tab === 'codex'} onBind={() => setCodexBindingOpen(true)} />}
             tab={tab}
             onTab={setTab}
             grouping={settings.findingsGrouping}
@@ -1456,6 +1463,7 @@ const SEV_ORDER: Severity[] = ['high', 'medium', 'low'];
 const SEV_LABEL: Record<Severity, string> = { high: 'High', medium: 'Med', low: 'Low' };
 
 function RightPanel({
+  codexChat,
   tab,
   onTab,
   grouping,
@@ -1504,6 +1512,7 @@ function RightPanel({
   onPickCategory,
   onOpenFile,
 }: {
+  codexChat: ReactNode;
   tab: RightTab;
   onTab: (t: RightTab) => void;
   grouping: UiSettings['findingsGrouping'];
@@ -1638,7 +1647,7 @@ function RightPanel({
       <div className="tabs">
         {RIGHT_TABS.map((t) => (
           <button key={t} className={`tab${t === tab ? ' on' : ''}`} onClick={() => onTab(t)}>
-            {t === 'discussion' ? 'Discussion' : t === 'findings' ? 'Findings' : 'Summary'}
+            {t === 'discussion' ? 'Discussion' : t === 'findings' ? 'Findings' : t === 'codex' ? 'Codex' : 'Summary'}
             {t === 'discussion' && discussions.length > 0 && (
               <span className="tab-count">{discussions.length}</span>
             )}
@@ -1648,6 +1657,7 @@ function RightPanel({
         ))}
       </div>
 
+      {codexChat}
       {tab === 'findings' && (
         <div className="tab-body">
           {/* 列表里已经有东西时(重跑必然如此,首轮也在第一条报出后如此),整屏空态的镜片画面

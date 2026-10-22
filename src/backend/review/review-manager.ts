@@ -327,6 +327,10 @@ export class ReviewManager extends EventEmitter {
   }
 
   getCodexBinding(id: string) { return this.store.getCodexBinding(id); }
+  getCodexChatDraft(threadId: string) { return this.store.getCodexChatDraft(threadId); }
+  saveCodexChatDraft(threadId: string, draft: import('@shared/codex-chat').CodexChatDraft) { return this.store.saveCodexChatDraft(threadId, draft); }
+  reserveCodexChatSend(threadId: string, requestId: string) { return this.store.reserveCodexChatSend(threadId, requestId); }
+  finishCodexChatSend(requestId: string, status: 'accepted' | 'unknown') { return this.store.finishCodexChatSend(requestId, status); }
   setCodexBinding(id: string, binding: import('@shared/codex-handoff').CodexBinding | null) { return this.store.setCodexBinding(id, binding); }
 
   async refreshLocal(reviewId: string, forceMetadata = false) {

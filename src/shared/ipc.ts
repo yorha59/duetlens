@@ -1,4 +1,5 @@
 import type { CodexBinding, CodexSelection, CodexHandoffResult } from './codex-handoff';
+import type { CodexChatDraft, CodexChatEvent, CodexChatSend, CodexChatState } from './codex-chat';
 /**
  * IPC 契约:main(Node 后端)与 renderer(React)之间的唯一通道定义。
  * preload 经 contextBridge 暴露 `window.duetlens`,renderer 只依赖这里的类型。
@@ -49,6 +50,11 @@ export const IpcChannels = {
   codexBindingGet: 'codex:binding-get',
   codexBindingSet: 'codex:binding-set',
   codexAddSelection: 'codex:add-selection',
+  codexChatConnect: 'codex:chat-connect',
+  codexChatDisconnect: 'codex:chat-disconnect',
+  codexChatDraft: 'codex:chat-draft',
+  codexChatSend: 'codex:chat-send',
+  codexChatOpen: 'codex:chat-open',
   reviewRefreshLocal: 'review:refresh-local',
   reviewShare: 'review:share',
   reviewRevokeShare: 'review:revoke-share',
@@ -400,6 +406,7 @@ export type SubmitReviewResult =
 
 /** 后端 → renderer 单向推送(webContents.send) */
 export const IpcEvents = {
+  codexChatEvent: 'codex:chat-event',
   reviewEvent: 'review:event',
   /** 发起审核期间的阶段推进(review 记录尚未建立,故不走 reviewEvent) */
   reviewStartProgress: 'review:start-progress',
@@ -479,6 +486,12 @@ export interface DuetlensApi {
     codexBinding(reviewId: string): Promise<CodexBinding | null>;
     bindCodex(reviewId: string, binding: CodexBinding | null): Promise<CodexBinding | null>;
     addToCodex(reviewId: string, selection: CodexSelection): Promise<CodexHandoffResult>;
+    connectCodexChat(reviewId: string): Promise<{ state: CodexChatState; draft: CodexChatDraft }>;
+    disconnectCodexChat(reviewId: string): Promise<void>;
+    saveCodexChatDraft(reviewId: string, text: string, removeSelectionIds?: string[]): Promise<CodexChatDraft>;
+    sendCodexChat(reviewId: string, input: CodexChatSend): Promise<CodexChatDraft>;
+    openCodexChat(reviewId: string): Promise<void>;
+    onCodexChat(handler: (event: CodexChatEvent) => void): () => void;
     refreshLocal(reviewId: string, forceMetadata?: boolean): Promise<{ changed: boolean; deferred?: boolean }>;
     shareSession(reviewId: string): Promise<{ url: string }>;
     revokeShare(reviewId: string): Promise<void>;

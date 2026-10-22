@@ -4,6 +4,12 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.16] - 2026-10-22
+
+- Bind a local Codex chat and mirror its messages, streaming replies, and execution state beside the review. Open the bound chat in Codex to connect.
+- Add code selections to a persisted draft with file paths, line ranges, and revision snapshots. Send through the original Codex session.
+- Restore subscriptions after disconnects without replaying messages. Wait for active turns to finish; handle approvals and stopping in Codex.
+
 ## [0.12.0] - 2026-09-23
 
 ### Added

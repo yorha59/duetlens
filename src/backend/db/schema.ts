@@ -372,9 +372,14 @@ const V33 = `
 CREATE TABLE codex_session_bindings (review_id TEXT PRIMARY KEY REFERENCES reviews(id) ON DELETE CASCADE, thread_id TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'copy');
 `;
 
+const V34 = `
+CREATE TABLE codex_chat_drafts (thread_id TEXT PRIMARY KEY, draft_json TEXT NOT NULL);
+CREATE TABLE codex_chat_sends (request_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33,
+  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33, V34,
 ];
 
 export function migrate(db: Database): void {

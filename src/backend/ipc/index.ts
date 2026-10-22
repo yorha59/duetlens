@@ -1,4 +1,8 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { parseCodexThread } from '@shared/codex-handoff';
+import type { CodexChatDraft, CodexChatSend, CodexChatState } from '@shared/codex-chat';
+import { DesktopChat } from '../codex/desktop-chat';
 import type { CodexBinding, CodexSelection } from '@shared/codex-handoff';
 import { prepareCodexHandoff } from '../codex/selection-handoff';
 import { app, clipboard, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
@@ -39,6 +43,84 @@ export interface IpcDeps {
 
 /** 注册 main 侧全部 IPC handler,并把 ReviewManager 事件转发给 renderer。 */
 export function registerIpcHandlers({ manager, broadcast, updater, shareServer }: IpcDeps): void {
+  const chats = new Map<string, { chat: DesktopChat; count: number }>();
+  const subscriptions = new Map<string, () => void>();
+  const visibleDraft = (draft: CodexChatDraft): CodexChatDraft => ({ text: draft.text, selections: draft.selections.map(selection => ({ ...selection, context: '', text: selection.text.slice(0, 10000), previewTruncated: selection.text.length > 10000 })) });
+  const boundThread = (id: string) => {
+    const binding = manager.getCodexBinding(id);
+    if (!binding) throw new Error('请先绑定 Codex 对话');
+    return parseCodexThread(binding.threadId);
+  };
+  const publishDraft = (threadId: string) => {
+    const draft = visibleDraft(manager.getCodexChatDraft(threadId));
+    broadcast(IpcEvents.codexChatEvent, { kind: 'draft', threadId, draft }); return draft;
+  };
+  ipcMain.handle(IpcChannels.codexChatConnect, (event, id: string) => {
+    const threadId = boundThread(id); const key = `${event.sender.id}:${id}`;
+    subscriptions.get(key)?.();
+    let entry = chats.get(threadId);
+    if (!entry) { entry = { chat: new DesktopChat(threadId), count: 0 }; chats.set(threadId, entry); }
+    entry.count++;
+    const shared = entry;
+    let previous: CodexChatState | undefined;
+    const listener = (state: CodexChatState) => {
+      if (event.sender.isDestroyed()) return;
+      if (!previous) event.sender.send(IpcEvents.codexChatEvent, { kind: 'state', threadId, state });
+      else {
+        const old = new Map(previous.messages.map(message => [message.id, message]));
+        const updates = state.messages.filter(message => { const before = old.get(message.id); return !before || before.text !== message.text || before.phase !== message.phase || before.role !== message.role; });
+        const order = state.messages.map(message => message.id);
+        const changed = order.length !== previous.messages.length || order.some((id, index) => id !== previous!.messages[index]?.id);
+        const metadata: Omit<CodexChatState, 'messages'> = { threadId: state.threadId, connection: state.connection, title: state.title, busy: state.busy, activity: state.activity, error: state.error };
+        event.sender.send(IpcEvents.codexChatEvent, { kind: 'update', threadId, state: metadata, messages: updates, order: changed ? order : undefined });
+      }
+      previous = state;
+    };
+    shared.chat.on('state', listener);
+    const release = () => {
+      if (subscriptions.get(key) !== release) return;
+      subscriptions.delete(key); event.sender.off('destroyed', release); shared.chat.off('state', listener);
+      if (--shared.count === 0) { shared.chat.stop(); chats.delete(threadId); }
+    };
+    subscriptions.set(key, release); event.sender.once('destroyed', release);
+    if (entry.count === 1) entry.chat.start();
+    return { state: entry.chat.state, draft: visibleDraft(manager.getCodexChatDraft(threadId)) };
+  });
+  ipcMain.handle(IpcChannels.codexChatDisconnect, (event, id: string) => subscriptions.get(`${event.sender.id}:${id}`)?.());
+  ipcMain.handle(IpcChannels.codexChatOpen, (_event, id: string) => shell.openExternal(`codex://threads/${boundThread(id)}`));
+  ipcMain.handle(IpcChannels.codexChatDraft, (_event, id: string, text: string, remove: string[] = []) => {
+    if (typeof text !== 'string' || Buffer.byteLength(text) > 200000 || !Array.isArray(remove) || remove.length > 20 || remove.some(value => typeof value !== 'string')) throw new Error('草稿参数无效或过大');
+    const threadId = boundThread(id); const draft = manager.getCodexChatDraft(threadId);
+    draft.text = text; draft.selections = draft.selections.filter(selection => !remove.includes(selection.id));
+    manager.saveCodexChatDraft(threadId, draft); return publishDraft(threadId);
+  });
+  ipcMain.handle(IpcChannels.codexChatSend, async (_event, id: string, input: CodexChatSend) => {
+    const threadId = boundThread(id); const entry = chats.get(threadId); const chat = entry?.chat;
+    if (!chat || !entry) throw new Error('请先打开 Codex 同步对话');
+    if (typeof input?.text !== 'string' || Buffer.byteLength(input.text) > 200000 || !Array.isArray(input.selectionIds) || input.selectionIds.length > 20 || input.selectionIds.some(value => typeof value !== 'string')) throw new Error('发送参数无效或过大');
+    parseCodexThread(input.requestId);
+    const draft = manager.getCodexChatDraft(threadId);
+    const chosen = draft.selections.filter(selection => input.selectionIds.includes(selection.id));
+    if (new Set(input.selectionIds).size !== chosen.length) throw new Error('部分选区已移除,请重新检查待发送区');
+    const text = [input.text.trim(), ...chosen.map(selection => selection.context)].filter(Boolean).join('\n\n');
+    let reserved = false;
+    // 等待发送回执时即使用户切到 Findings,也保留连接到本次请求结束。
+    entry.count++;
+    try {
+      await chat.send(text, input.requestId, () => { manager.reserveCodexChatSend(threadId, input.requestId); reserved = true; });
+      manager.finishCodexChatSend(input.requestId, 'accepted');
+      const current = manager.getCodexChatDraft(threadId);
+      if (current.text === input.text) current.text = '';
+      current.selections = current.selections.filter(selection => !input.selectionIds.includes(selection.id));
+      manager.saveCodexChatDraft(threadId, current); return publishDraft(threadId);
+    } catch (error) {
+      if (reserved) manager.finishCodexChatSend(input.requestId, 'unknown');
+      throw error;
+    } finally {
+      if (--entry.count === 0) { entry.chat.stop(); chats.delete(threadId); }
+    }
+  });
+  app.once('before-quit', () => { for (const release of [...subscriptions.values()]) release(); for (const entry of chats.values()) entry.chat.stop(); chats.clear(); });
   ipcMain.handle(IpcChannels.codexBindingGet, (_event, id: string) => manager.getCodexBinding(id));
   ipcMain.handle(IpcChannels.codexBindingSet, (_event, id: string, binding: CodexBinding | null) => manager.setCodexBinding(id, binding));
   ipcMain.handle(IpcChannels.codexAddSelection, async (_event, id: string, selection: CodexSelection) => {
@@ -47,10 +129,15 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
     if (!review || !binding) throw new Error('请先绑定 Codex 对话');
     const session = await shareServer.share(id);
     const result = await prepareCodexHandoff(review, selection, manager.getDiff(id), path.join(app.getPath('userData'), 'codex-context'), binding, session.url);
-    clipboard.write({ text: result.text, html: result.html });
-    try { await shell.openExternal(result.url); }
-    catch { throw new Error('上下文已复制,但未能打开 Codex；请确认已安装 Codex 桌面应用'); }
-    return { snapshot: result.snapshot, copiedOnly: result.copiedOnly, message: result.copiedOnly ? '文件行引用已复制；在 Codex 按 ⌘V 添加,保留已有草稿。' : '已打开绑定对话并请求预填文件行引用；等待你手动发送。' };
+    const draft = manager.getCodexChatDraft(binding.threadId);
+    if (draft.selections.length >= 20) throw new Error('一次最多添加 20 个选区');
+    if (!draft.selections.some(item => item.file === selection.file && item.line === selection.line && item.lineEnd === selection.lineEnd && item.side === selection.side && item.text === selection.text)) {
+      if (Buffer.byteLength(draft.selections.map(item => item.context).join('') + result.text) > 1800000) throw new Error('选区内容过大,请先发送或移除部分选区');
+      draft.selections.push({ ...selection, id: randomUUID(), context: result.text, snapshot: result.snapshot });
+      manager.saveCodexChatDraft(binding.threadId, draft);
+    }
+    publishDraft(binding.threadId);
+    return { snapshot: result.snapshot, copiedOnly: false, message: '已添加到同步对话的待发送区,点击发送后交给 Codex。' };
   });
   ipcMain.handle(IpcChannels.reviewRefreshLocal, (_event, id: string, forceMetadata?: boolean) => manager.refreshLocal(id, forceMetadata));
   ipcMain.handle(IpcChannels.reviewShare, async (_event, id: string) => {

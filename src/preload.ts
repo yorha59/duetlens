@@ -32,6 +32,16 @@ const api: DuetlensApi = {
     codexBinding: (id) => ipcRenderer.invoke(IpcChannels.codexBindingGet, id),
     bindCodex: (id, binding) => ipcRenderer.invoke(IpcChannels.codexBindingSet, id, binding),
     addToCodex: (id, selection) => ipcRenderer.invoke(IpcChannels.codexAddSelection, id, selection),
+    connectCodexChat: (id) => ipcRenderer.invoke(IpcChannels.codexChatConnect, id),
+    disconnectCodexChat: (id) => ipcRenderer.invoke(IpcChannels.codexChatDisconnect, id),
+    saveCodexChatDraft: (id, text, remove) => ipcRenderer.invoke(IpcChannels.codexChatDraft, id, text, remove),
+    sendCodexChat: (id, input) => ipcRenderer.invoke(IpcChannels.codexChatSend, id, input),
+    openCodexChat: (id) => ipcRenderer.invoke(IpcChannels.codexChatOpen, id),
+    onCodexChat: (handler) => {
+      const listener = (_event: IpcRendererEvent, payload: import('@shared/codex-chat').CodexChatEvent) => handler(payload);
+      ipcRenderer.on(IpcEvents.codexChatEvent, listener);
+      return () => ipcRenderer.off(IpcEvents.codexChatEvent, listener);
+    },
     refreshLocal: (id, forceMetadata) => ipcRenderer.invoke(IpcChannels.reviewRefreshLocal, id, forceMetadata),
     shareSession: (id) => ipcRenderer.invoke(IpcChannels.reviewShare, id),
     revokeShare: (id) => ipcRenderer.invoke(IpcChannels.reviewRevokeShare, id),

@@ -414,6 +414,21 @@ export class ReviewStore {
       ON CONFLICT(remote_id) DO UPDATE SET synced_commit = excluded.synced_commit`).run(state.remoteId, commit);
   }
 
+  getCodexChatDraft(threadId: string): import('@shared/codex-chat').CodexChatDraft {
+    const row = this.db.prepare('SELECT draft_json FROM codex_chat_drafts WHERE thread_id=?').get(threadId) as { draft_json: string } | undefined;
+    return row ? JSON.parse(row.draft_json) : { text: '', selections: [] };
+  }
+  saveCodexChatDraft(threadId: string, draft: import('@shared/codex-chat').CodexChatDraft): void {
+    this.db.prepare('INSERT INTO codex_chat_drafts(thread_id,draft_json) VALUES(?,?) ON CONFLICT(thread_id) DO UPDATE SET draft_json=excluded.draft_json').run(threadId, JSON.stringify(draft));
+  }
+  reserveCodexChatSend(threadId: string, requestId: string): void {
+    if (this.db.prepare('SELECT request_id FROM codex_chat_sends WHERE request_id=?').get(requestId)) throw new Error('这条消息已经尝试发送；请检查 Codex 会话,不要重复提交');
+    this.db.prepare('INSERT INTO codex_chat_sends(request_id,thread_id,status,created_at) VALUES(?,?,?,?)').run(requestId, threadId, 'pending', Date.now());
+  }
+  finishCodexChatSend(requestId: string, status: 'accepted' | 'unknown'): void {
+    this.db.prepare('UPDATE codex_chat_sends SET status=? WHERE request_id=?').run(status, requestId);
+  }
+
   private codexBindingOwner(id: string): string {
     const review = this.getReview(id);
     if (!review) throw new Error('审核任务不存在');

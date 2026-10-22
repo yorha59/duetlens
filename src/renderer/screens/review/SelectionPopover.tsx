@@ -25,7 +25,7 @@ export function SelectionPopover({ label, top, left, onAnnotate, onAddToCodex }:
       <button className="sp-annotate" onClick={onAnnotate}>
         <PencilIcon /> 段落批注
       </button>
-      <button type="button" className="sp-annotate" disabled={!onAddToCodex || busy} title={onAddToCodex ? '添加带行号的 Codex 文件引用' : '请先点击顶栏“绑定 Codex”'} onClick={() => {
+      <button type="button" className="sp-annotate" disabled={!onAddToCodex || busy} title={onAddToCodex ? '把选区加入同步对话的待发送区' : '请先点击顶栏“绑定 Codex”'} onClick={() => {
         if (!onAddToCodex || busy) return;
         setBusy(true); setMessage('');
         void onAddToCodex().then(setMessage).catch((error: Error) => setMessage(error.message)).finally(() => setBusy(false));

@@ -124,3 +124,13 @@ codex 在自己那侧拒掉对自建 MCP 的调用时,turn **照常跑完并 com
 ## 已决定不复用的能力
 
 codex 另有内置 `review/start` + `item/autoApprovalReview/*` 全流程 —— **不复用,自建 MCP 扫描**:用自己的 baseInstructions + `report_finding` 驱动首轮,与后续对话式 review 同一套机制、完全可控。
+
+## 绑定桌面 Codex 对话
+
+同步对话走独立的 `DesktopChat`,不复用上述只读审核 agent。绑定的是本机已经在 Codex 打开的 thread;Duetlens 作为 follower 订阅桌面 owner 的快照和增量,发送时交给同一个 owner 执行。这样保留原会话的工具、工作区和审批,不另起 app-server 抢占同一 thread,也不覆盖原会话指令。
+
+这条链路使用 Codex 私有本地 IPC。只连接本用户已有且权限受限的 socket,不启动 router。快照协议不兼容时禁止发送;补丁版本断档则重新请求快照。只把变化的可见消息推给 renderer,后台标签页取消订阅,不通过定时读取整个历史来同步。
+
+选区先经当前审核 diff 与磁盘内容校验,版本不一致时复用选区快照,保存到 Duetlens 的待发送草稿。添加选区不触发 agent;只有明确发送才转交文本和上下文。草稿与发送请求 ID 持久化,超时或断线不自动重发,避免结果未知时重复执行。
+
+实时转发只同步已加载的对话历史、消息和状态。Codex 输入框里的草稿和原生 selection 附件不共享;执行中的新消息暂缓发送,审批与停止仍在 Codex 处理。
