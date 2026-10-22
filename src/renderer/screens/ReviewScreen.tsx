@@ -38,6 +38,7 @@ import { LensScanArt } from '../components/LensScanArt';
 import { Resizer } from './review/Resizer';
 import { ReviewStatusBar } from './review/StatusBar';
 import { describeRoundError, describeSendFailure } from './review/round-error';
+import { WorkspacePanel } from './review/WorkspacePanel';
 import { RerunPanel } from './review/RerunPanel';
 import { ScopeSwitcher } from './review/ScopeMenu';
 import { newStartId, roundSteps, StartSteps, type StartStep } from '../components/StartProgress';
@@ -148,7 +149,7 @@ export function ReviewScreen(props: {
 
   // 只有顶层、未钉死在某个 commit 上的 PR 才是容器(见 ReviewManager.requireContainer)
   const isContainer =
-    container?.source === 'github-pr' && !container.headRef && !container.parentReviewId;
+    container?.source === 'github-pr' && !container.localReview && !container.headRef && !container.parentReviewId;
 
   useEffect(() => {
     if (!reviewId) return;
@@ -169,8 +170,17 @@ export function ReviewScreen(props: {
       .getActiveScope(reviewId)
       .then((s) => alive && setActiveSha(s))
       .catch(() => alive && setActiveSha(null));
+    const stop = window.duetlens.review.onEvent((event) => {
+      if (event.reviewId !== reviewId || (event.type !== 'review' && event.type !== 'round')) return;
+      void window.duetlens.review.get(reviewId).then((updated) => {
+        if (!alive) return;
+        setContainer(updated);
+        if (updated?.localReview) { setActiveSha(null); setScopeId(null); }
+      });
+    });
     return () => {
       alive = false;
+      stop();
     };
   }, [reviewId]);
 
@@ -438,6 +448,7 @@ function ReviewPane({
   const [helpOpen, setHelpOpen] = useState(false);
   // 重跑确认面板
   const [rerunOpen, setRerunOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   // 会话位满载时在跑的那几条(与入口屏同一块提示)。不进 round-error 那两张表:
   // 满载不是「这一轮跑挂了」而是根本没开跑,且要附一份现拉的动态名单,纯文案表放不下。
   const [capacity, setCapacity] = useState<LiveCapacity | null>(null);
@@ -877,7 +888,7 @@ function ReviewPane({
   // 有模态压在上面时,导航键一律挂起。判据必须是**所有**打开中的模态,不能只认帮助层:
   // 重跑面板同样是带 scrim 的 dialog,漏掉它时在说明输入框里按 ⌘F 会把焦点抢到对话框背后的
   // 检索条,⌘G 还会在背后换命中并滚动 diff。DiffPane 自带的 ⌘G 也吃这同一个判据。
-  const modalOpen = helpOpen || rerunOpen;
+  const modalOpen = helpOpen || rerunOpen || workspaceOpen;
 
   // 全局导航快捷键:? 帮助 / ⌘1-3 切 tab / ⌘U 切 diff / ⌘F 查 diff 内容 / ⌘⇧F 聚焦过滤框 /
   // ⌘E 重跑 / Esc 关闭。
@@ -1086,12 +1097,12 @@ function ReviewPane({
           )}
           {/* 只在改过 base 时才出:默认基线不需要解释,而非默认的那份改动面三天后回看根本认不出。
               钉了 commit 时 base 不参与定位(见 ReviewTarget.headRef),那枚 chip 也就不该出 */}
-          {review?.baseRef && !review.headRef && (
-            <span className="mono basechip" title={`本次改动面相对 ${review.baseRef} 计算`}>
-              ← {review.baseRef}
+          {review && (review.localReview ? review.localBaseRef : review.baseRef) && !review.headRef && (
+            <span className="mono basechip" title={`本次改动面相对 ${review.localReview ? review.localBaseRef : review.baseRef} 计算`}>
+              ← {review.localReview ? review.localBaseRef?.slice(0, 7) : review.baseRef}
             </span>
           )}
-          {scope ? (
+          {scope && !review?.localReview ? (
             <ScopeSwitcher
               prLabel={sourceLabel}
               activeSha={scope.activeSha}
@@ -1118,6 +1129,9 @@ function ReviewPane({
           {pr?.nwo && <span className="mono nwo">{pr.nwo}</span>}
         </div>
         <span className="spacer" />
+        {isGithub && !review.headRef && !review.parentReviewId && <button type="button" className="rerun-cta" disabled={scanning || !!scope?.pending} onClick={() => setWorkspaceOpen(true)}>
+          {review.localReview ? '本地代码 · 同步' : '关联本地仓库'}
+        </button>}
         {/* 还没机审过就没有「上一轮」可带,重跑那颗按钮在这里指向一件不存在的事 */}
         {!unscanned && (
           <button
@@ -1145,13 +1159,14 @@ function ReviewPane({
             className="submit-cta"
             onClick={onOpenSubmit}
             disabled={!!scope?.pending}
-            title={isGithub ? '进入筛选并提交 review 到 GitHub' : '导出 review 为 Markdown'}
+            title={review?.localReview ? '导出当前本地审核为 Markdown;同步后切回远端可提交 review' : isGithub ? '进入筛选并提交 review 到 GitHub' : '导出 review 为 Markdown'}
           >
-            {isGithub ? '提交 review' : '↓ 导出 review'}
+            {isGithub && !review.localReview ? '提交 review' : '↓ 导出 review'}
             {ctaCount > 0 && <span className="cta-badge">{ctaCount}</span>}
           </button>
         )}
       </header>
+      {workspaceOpen && review && <WorkspacePanel review={review} onClose={() => setWorkspaceOpen(false)} />}
       {helpOpen && <KbdHelp onClose={() => setHelpOpen(false)} />}
       {rerunOpen && (
         <RerunPanel

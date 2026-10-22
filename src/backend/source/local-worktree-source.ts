@@ -31,7 +31,9 @@ export class LocalWorktreeSource implements Source {
       } catch {
         // 刚初始化、尚无首个提交的仓库也可审。
       }
-      this.base = head || (await this.git(['hash-object', '-t', 'tree', '--stdin'], '')).trim();
+      this.base = this.target.baseRef && head
+        ? (await this.git(['merge-base', head, this.target.baseRef])).trim()
+        : head || (await this.git(['hash-object', '-t', 'tree', '--stdin'], '')).trim();
       if (head) await this.git(['read-tree', head]);
       const tracked = await run('git', ['-C', repo, ...(head
         ? ['diff', '--no-ext-diff', '--name-only', '-z', head, '--']

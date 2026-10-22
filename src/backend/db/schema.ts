@@ -317,9 +317,15 @@ ALTER TABLE ui_settings ADD COLUMN pi_default_model TEXT NOT NULL DEFAULT '';
 ALTER TABLE ui_settings ADD COLUMN pi_path TEXT NOT NULL DEFAULT '';
 `;
 
+// 远端 PR 任务可以关联工作区并在两种代码来源间复审;保留 PR 身份与历史。
+const V26 = `
+ALTER TABLE reviews ADD COLUMN local_review INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reviews ADD COLUMN local_base_ref TEXT;
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25,
+  V21, V22, V23, V24, V25, V26,
 ];
 
 export function migrate(db: Database): void {

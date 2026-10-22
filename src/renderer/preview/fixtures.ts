@@ -953,6 +953,9 @@ export function installPreviewApi(): void {
       return { ...codexOk, pi: piOk, gh: ghOk };
     },
     review: {
+      attachWorkspace: async (_id, repoPath) => { review = { ...review, repoPath }; fire({ reviewId: review.id, type: 'review', payload: review }); return review; },
+      syncPlan: async () => ({ token: 'preview', branch: 'feat/streaming-transcode', repository: 'example/podcast-go', files: ['src/pipeline.ts'], commitsAhead: 1 }),
+      syncPush: async () => ({ commit: 'abcdef1234567890', prUrl: 'https://github.com/example/podcast-go/pull/1' }),
       list: async () => [review],
       listRecent: async () => (params.has('empty') ? [] : RECENT_REVIEWS),
       // ?review=error 模拟读库失败,自查依赖它的屏不会卡在加载态
@@ -1033,6 +1036,8 @@ export function installPreviewApi(): void {
           );
         }
         if (slow) await new Promise((r) => window.setTimeout(r, 16_000));
+        if (input?.workspace) review = { ...review, localReview: input.workspace.mode === 'local', repoPath: input.workspace.repoPath || review.repoPath };
+
         const round: ReviewRound = {
           reviewId: 'demo',
           round: rounds.length + 1,

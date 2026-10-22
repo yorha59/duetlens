@@ -51,6 +51,9 @@ export const IpcChannels = {
   reviewFileContent: 'review:file-content',
   reviewStart: 'review:start',
   reviewRerun: 'review:rerun',
+  reviewAttachWorkspace: 'review:attach-workspace',
+  reviewSyncPlan: 'review:sync-plan',
+  reviewSyncPush: 'review:sync-push',
   reviewRetryRound: 'review:retry-round',
   reviewStopScan: 'review:stop-scan',
   reviewStopReply: 'review:stop-reply',
@@ -154,7 +157,27 @@ export interface ReviewStartProgress {
 }
 
 /** 发起一轮重跑的入参。 */
+export interface WorkspaceTarget {
+  mode: 'local' | 'remote';
+  repoPath?: string;
+}
+
+export interface CodeSyncPlan {
+  token: string;
+  branch: string;
+  repository: string;
+  files: string[];
+  commitsAhead: number;
+}
+
+export interface CodeSyncResult {
+  commit: string;
+  prUrl: string;
+}
+
 export interface RerunInput {
+  /** 在同一任务内更换代码来源,本轮沿用原 findings 与 reviewer 处置。 */
+  workspace?: WorkspaceTarget;
   /** reviewer 对本轮的额外说明(如「重点看并发那块」),随复审指令注入 */
   note?: string;
   /** 本轮起调整审核强度;缺省沿用 review 现有档。给出即持久化为 review 新档,后续轮次/续接沿用 */
@@ -441,6 +464,9 @@ export interface DuetlensApi {
      * 立即返回新轮次记录,扫描后台跑。上一轮仍在扫描中时抛错。
      */
     rerun(reviewId: string, input?: RerunInput): Promise<ReviewRound>;
+    attachWorkspace(reviewId: string, repoPath: string): Promise<Review>;
+    syncPlan(reviewId: string): Promise<CodeSyncPlan>;
+    syncPush(reviewId: string, token: string, message: string): Promise<CodeSyncResult>;
     /**
      * 重试失败的当前轮:沿用同一轮号与原说明重跑,不新增轮次。
      * 当前轮不是 failed 时抛错。

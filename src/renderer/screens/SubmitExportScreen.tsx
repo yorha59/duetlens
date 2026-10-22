@@ -79,7 +79,7 @@ export function SubmitExportScreen({
     );
   }
 
-  if (review.source === 'github-pr') {
+  if (review.source === 'github-pr' && !review.localReview) {
     const tabs = (
       <div className="se-tabs">
         <button

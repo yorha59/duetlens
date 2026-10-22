@@ -337,6 +337,10 @@ export interface Review {
   parentReviewId: string | null;
   /** 可选本地仓库路径(github source 也可指定,让 agent 读全量代码) */
   repoPath: string | null;
+  /** PR 身份不变,仅将本轮代码来源切到关联工作区。 */
+  localReview?: boolean;
+  /** 本地 PR 审核的共同祖先基线,包含分支提交与未提交改动。 */
+  localBaseRef?: string | null;
   /** 跑这条 review 的 agent;建行时定死,复审与追问都沿用 */
   agent: AgentKind;
   /** agent 侧会话 id(续接用);是哪家的会话由 {@link agent} 说了算 */

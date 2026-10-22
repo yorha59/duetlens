@@ -1,0 +1,19 @@
+.rerun-panel.workspace-panel { box-sizing: border-box; max-height: 85vh; overflow-y: auto; width: min(680px, calc(100vw - 48px)); }
+.workspace-panel p { color: var(--text-dim); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.workspace-panel .rp-head { justify-content: space-between; }
+.workspace-panel button { cursor: pointer; }
+.workspace-panel button:disabled { cursor: default; opacity: .5; }
+.workspace-panel .rp-head button { background: transparent; color: var(--text-dim); border: 0; font-size: 24px; }
+.workspace-panel input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); }
+.workspace-panel label { display: block; font-size: 13px; margin: 12px 0; }
+.workspace-directory > span { display: flex; gap: 8px; margin-top: 6px; }
+.workspace-directory input { flex: 1; min-width: 0; }
+.workspace-panel button:not(.submit-cta) { padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--card); }
+.workspace-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+.workspace-panel hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+.workspace-panel h3 { font-size: 15px; }
+.workspace-sync-plan ul { max-height: 180px; overflow: auto; padding: 8px 8px 8px 28px; border: 1px solid var(--border); font: 12px/1.7 var(--mono); overflow-wrap: anywhere; }
+.workspace-panel .workspace-error { color: var(--red); }
+.workspace-panel .workspace-notice { color: var(--green); }
+
+.workspace-panel .submit-cta { background: var(--accent-solid); color: var(--on-solid); border: 0; border-radius: 6px; padding: 8px 12px; font-weight: 600; }

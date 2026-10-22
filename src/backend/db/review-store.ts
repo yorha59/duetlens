@@ -50,6 +50,8 @@ interface ReviewRow {
   head_ref: string | null;
   parent_review_id: string | null;
   repo_path: string | null;
+  local_review?: number;
+  local_base_ref?: string | null;
   agent: string;
   agent_session_id: string | null;
   model: string | null;
@@ -159,6 +161,8 @@ function toReview(r: ReviewRow): Review {
     headRef: r.head_ref,
     parentReviewId: r.parent_review_id,
     repoPath: r.repo_path,
+    localReview: !!r.local_review,
+    localBaseRef: r.local_base_ref ?? null,
     agent: r.agent as AgentKind,
     agentSessionId: r.agent_session_id,
     model: r.model,
@@ -364,6 +368,11 @@ export class ReviewStore {
       )
       .run(row);
     return toReview(row);
+  }
+
+  setReviewWorkspace(reviewId: string, repoPath: string, localReview: boolean, baseRef: string | null): void {
+    this.db.prepare('UPDATE reviews SET repo_path = ?, local_review = ?, local_base_ref = ?, updated_at = ? WHERE id = ?')
+      .run(repoPath, localReview ? 1 : 0, baseRef, now(), reviewId);
   }
 
   getReview(id: string): Review | null {
@@ -601,6 +610,20 @@ export class ReviewStore {
    * 开一轮。**同一轮号可重开** —— 失败的那一轮重试时沿用原轮号覆盖本行,否则「第 N 轮」
    * 会退化成重试次数。重开即把上次的失败痕迹与统计一并清零。
    */
+  recordWorkspaceRound(
+    review: Pick<Review, 'id' | 'repoPath' | 'localReview' | 'localBaseRef'>,
+    round: number,
+    input: Parameters<ReviewStore['startRound']>[2],
+    rawDiff: string,
+  ): ReviewRound {
+    return this.db.transaction(() => {
+      this.setReviewWorkspace(review.id, review.repoPath ?? '', !!review.localReview, review.localBaseRef ?? null);
+      this.setDiff(review.id, rawDiff);
+      if (review.localReview) this.setActiveScope(review.id, null);
+      return this.startRound(review.id, round, input);
+    })();
+  }
+
   startRound(
     reviewId: string,
     round: number,

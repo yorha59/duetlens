@@ -102,6 +102,8 @@
   color: var(--agent-2);
 }
 .rev-topbar .submit-cta {
+  flex: none;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -5770,3 +5772,6 @@ body.rz-dragging * {
 
 .diff-editor-error { margin: 8px 12px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--card); font-size: 12px; }
 .diff-editor-error button { margin-left: 8px; border: 0; background: transparent; color: var(--agent); cursor: pointer; }
+
+/* 代码来源入口与常驻操作保持单行,标题让出空间。 */
+.rev-topbar > .rerun-cta { flex: none; white-space: nowrap; }

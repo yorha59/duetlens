@@ -35,6 +35,7 @@ import { loadBaseInstructions, loadReviewPrompt, saveReviewLayer } from '../prom
 import { buildRerunPrompt } from '../prompt/rerun-prompt';
 import { buildScanPrompt } from '../prompt/scan-prompt';
 import { createSource } from '../source/create-source';
+import { PrWorkspace } from '../source/pr-workspace';
 import { fetchPrContextForReview } from '../source/github-pr-context';
 import { checkEnvironment } from '../env/environment-check';
 import type { EnvCheckOptions, EnvironmentReport } from '@shared/environment';
@@ -103,6 +104,9 @@ function snapshotPatched(before: Finding, after: Finding): ProposalUpdateBefore 
  * 回到该 source 的默认基线,同一条 review 的第二轮起就换了一份改动面。
  */
 function targetOf(review: Review): ReviewTarget {
+  if (review.source === 'github-pr' && review.localReview) {
+    return { source: 'local-worktree', ref: review.sourceRef, repoPath: review.repoPath ?? '', baseRef: review.localBaseRef ?? undefined };
+  }
   return {
     source: review.source,
     ref: review.sourceRef,
@@ -239,6 +243,46 @@ export class ReviewManager extends EventEmitter {
   private readonly submitter: GitHubSubmitter;
   /** 正在提交的 review;PR review 是原子提交,并发两份就是把同一批评论发给作者两遍。 */
   private readonly submitting = new Set<string>();
+  private readonly workspaceBusy = new Set<string>();
+  private readonly prWorkspace = new PrWorkspace();
+
+  private assertWorkspaceIdle(reviewId: string): Review {
+    const review = this.store.getReview(reviewId);
+    if (!review) throw new Error('审核任务不存在');
+    if (this.workspaceBusy.has(reviewId) || this.submitting.has(reviewId) || this.sessions.get(reviewId)?.isBusy() || this.resuming.has(reviewId) || review.status === 'scanning') {
+      throw new Error('审核或同步操作仍在进行中,请结束后再试');
+    }
+    return review;
+  }
+
+  async attachWorkspace(reviewId: string, repoPath: string): Promise<Review> {
+    const review = this.assertWorkspaceIdle(reviewId);
+    this.workspaceBusy.add(reviewId);
+    try {
+      if (review.localReview) throw new Error('请先切回远端 PR 再更换本地仓库');
+      const info = await this.prWorkspace.inspect(review, repoPath);
+      // 关联只改变目录;代码快照与审核来源在切换并复审后才改变。
+      await this.teardown(reviewId);
+      this.store.setReviewWorkspace(reviewId, info.repoPath, false, null);
+      const updated = this.store.getReview(reviewId)!;
+      this.forward({ reviewId, type: 'review', payload: updated });
+      return updated;
+    } finally { this.workspaceBusy.delete(reviewId); }
+  }
+
+  async syncPlan(reviewId: string) {
+    const review = this.assertWorkspaceIdle(reviewId);
+    this.workspaceBusy.add(reviewId);
+    try { return await this.prWorkspace.plan(review); }
+    finally { this.workspaceBusy.delete(reviewId); }
+  }
+
+  async syncPush(reviewId: string, token: string, message: string) {
+    const review = this.assertWorkspaceIdle(reviewId);
+    this.workspaceBusy.add(reviewId);
+    try { return await this.prWorkspace.push(review, token, message); }
+    finally { this.workspaceBusy.delete(reviewId); }
+  }
 
   /** pi 的装配参数;缺省时选 pi 的 review 起不来(spike 只测 codex 那条时不必给)。 */
   private readonly pi?: PiAgentConfig;
@@ -378,7 +422,7 @@ export class ReviewManager extends EventEmitter {
     // **headRef 反过来必须留着**:钉住某个 commit 的 review 提交时用的正是那个 commit_id,
     // GitHub 校验的也就是它自己那份 diff;清掉会拿整个 PR 的 diff 去判,放行一批实际会被拒的锚点。
     const source = createSource(
-      review.source === 'github-pr' ? { ...targetOf(review), baseRef: undefined } : targetOf(review),
+      review.source === 'github-pr' && !review.localReview ? { ...targetOf(review), baseRef: undefined } : targetOf(review),
     );
     try {
       const prepared = await source.prepare();
@@ -455,7 +499,8 @@ export class ReviewManager extends EventEmitter {
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
     const source = createSource(targetOf(review));
     try {
-      await source.prepare();
+      const prepared = await source.prepare();
+      if (review.localReview && prepared.headSha !== this.store.getRound(reviewId, review.currentRound)?.headSha) return null;
       return await source.getFile(filePath);
     } catch {
       return null; // 同上:这条路读不到就是 null
@@ -723,6 +768,8 @@ export class ReviewManager extends EventEmitter {
   async submitReview(reviewId: string, input: SubmitReviewInput): Promise<SubmitReviewResult> {
     const review = this.store.getReview(reviewId);
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
+    if (review.localReview) return { status: 'failed', message: '本轮审核的是本地代码,请先同步代码并切回远端 PR 复审后提交意见' };
+    if (this.workspaceBusy.has(reviewId)) return { status: 'failed', message: '代码来源或同步操作正在进行中' };
     if (review.source !== 'github-pr') {
       return { status: 'failed', message: '仅 github-pr source 可提交到 GitHub;本地/vbranch 请用导出。' };
     }
@@ -790,6 +837,7 @@ export class ReviewManager extends EventEmitter {
 
   /** 向某条 discussion 追问;会话不在内存时先按 agentSessionId 续接。 */
   async sendMessage(reviewId: string, discussionId: string, text: string): Promise<Message> {
+    if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
     const session = this.sessions.get(reviewId) ?? (await this.resumeSession(reviewId));
     this.touch(reviewId);
     return session.sendMessage(discussionId, text);
@@ -807,6 +855,7 @@ export class ReviewManager extends EventEmitter {
    * 漏拆就留下一批指着已删行的 codex 子进程与 MCP server。故连子行一起拆。
    */
   async deleteReview(reviewId: string): Promise<void> {
+    if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
     const ids = [...this.store.listChildren(reviewId).map((c) => c.id), reviewId];
     for (const id of ids) await this.teardown(id);
     this.store.deleteReview(reviewId);
@@ -871,6 +920,7 @@ export class ReviewManager extends EventEmitter {
 
   /** 显式续接一个非活跃 review 的会话(app 重启后);已活跃则原样返回。 */
   async resumeReview(reviewId: string): Promise<Review> {
+    if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
     if (!this.sessions.has(reviewId)) await this.resumeSession(reviewId);
     const review = this.store.getReview(reviewId);
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
@@ -1198,6 +1248,7 @@ export class ReviewManager extends EventEmitter {
   private requireContainer(reviewId: string): Review {
     const review = this.store.getReview(reviewId);
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
+    if (review.localReview) throw new Error('本地代码模式请先切回远端 PR 再选择提交范围');
     if (review.source !== 'github-pr') throw new Error('只有 GitHub PR 的审核才有提交范围可切换');
     if (review.parentReviewId) throw new Error('这已经是一个提交范围,不能再往下分');
     // 本功能之前发起的「只审一个提交」是顶层行,但它的 diff 快照就是那个提交的 ——
@@ -1211,6 +1262,7 @@ export class ReviewManager extends EventEmitter {
   }
 
   setActiveScope(reviewId: string, scope: string | null): void {
+    if (scope && this.store.getReview(reviewId)?.localReview) throw new Error('请先切回远端 PR 再选择提交范围');
     this.store.setActiveScope(reviewId, scope);
   }
 
@@ -1225,25 +1277,40 @@ export class ReviewManager extends EventEmitter {
     input: RerunInput = {},
     onStage?: (s: ReviewStartStage) => void,
   ): Promise<ReviewRound> {
-    const review = this.store.getReview(reviewId);
-    if (!review) throw new Error(`review 不存在: ${reviewId}`);
-    const current = this.store.getRound(reviewId, review.currentRound);
-    if (current?.status === 'scanning') {
-      throw new Error('上一轮扫描尚未结束,不能重跑');
-    }
+    this.assertWorkspaceIdle(reviewId);
+    this.workspaceBusy.add(reviewId);
+    try {
+      let review = this.store.getReview(reviewId);
+      if (!review) throw new Error(`review 不存在: ${reviewId}`);
+      const current = this.store.getRound(reviewId, review.currentRound);
+      if (current?.status === 'scanning') {
+        throw new Error('上一轮扫描尚未结束,不能重跑');
+      }
 
-    // 本轮可调档:给出即持久化为 review 新档,使后续轮次与续接(追问的 baseInstructions)一致沿用。
-    const intensity = input.intensity ?? review.intensity;
-    if (input.intensity && input.intensity !== review.intensity) {
-      this.store.setReviewIntensity(reviewId, input.intensity);
-    }
+      if (input.workspace) {
+        if (review.source !== 'github-pr' || review.headRef || review.parentReviewId) throw new Error('请在整个 PR 的审核任务中切换代码来源');
+        if (input.workspace.mode === 'local') {
+          const local = await this.prWorkspace.localTarget(review, input.workspace.repoPath ?? review.repoPath ?? '');
+          review = { ...review, repoPath: local.repoPath, localReview: true, localBaseRef: local.base };
+        } else if (input.workspace.mode === 'remote') {
+          review = { ...review, localReview: false, localBaseRef: null };
+        } else throw new Error('未知代码来源');
+      }
 
-    return this.launchRound(review, {
-      round: review.currentRound + 1,
-      note: input.note ?? null,
-      intensity,
-      onStage,
-    });
+      // 本轮可调档:给出即持久化为 review 新档,使后续轮次与续接(追问的 baseInstructions)一致沿用。
+      const intensity = input.intensity ?? review.intensity;
+      if (input.intensity && input.intensity !== review.intensity) {
+        this.store.setReviewIntensity(reviewId, input.intensity);
+      }
+
+      return await this.launchRound(review, {
+        round: review.currentRound + 1,
+        note: input.note ?? null,
+        intensity,
+        onStage,
+        workspaceChanged: !!input.workspace,
+      });
+    } finally { this.workspaceBusy.delete(reviewId); }
   }
 
   /**
@@ -1303,6 +1370,7 @@ export class ReviewManager extends EventEmitter {
       intensity: ReviewIntensity;
       /** 重试同一轮时,该轮首次开跑记下的变更文件基线 */
       priorChanged?: ReviewRound;
+      workspaceChanged?: boolean;
       onStage?: (s: ReviewStartStage) => void;
     },
   ): Promise<ReviewRound> {
@@ -1336,8 +1404,6 @@ export class ReviewManager extends EventEmitter {
         ...new Set([...(opts.priorChanged?.changedFiles ?? []), ...changedFilesBetween(prevDiff, rawDiff)]),
       ].sort();
       const codeChanged = Boolean(opts.priorChanged?.codeChanged) || prevDiff !== rawDiff;
-      this.store.setDiff(reviewId, rawDiff);
-
       const pr = await this.prContext(review, opts.round);
 
       const findings = this.store.listFindings(reviewId);
@@ -1349,12 +1415,18 @@ export class ReviewManager extends EventEmitter {
         if (msgs.length) messagesByDiscussion[f.discussionId] = msgs;
       }
 
-      round = this.store.startRound(reviewId, opts.round, {
-        headSha: prepared.headSha,
-        note: opts.note,
-        changedFiles,
-        codeChanged,
+      baseInstructions = await loadBaseInstructions({
+        cwd: prepared.cwd,
+        intensity: opts.intensity,
+        canSearch: !!source.searchCode,
       });
+      const roundInput = { headSha: prepared.headSha, note: opts.note, changedFiles, codeChanged };
+      if (opts.workspaceChanged) {
+        round = this.store.recordWorkspaceRound(review, opts.round, roundInput, rawDiff);
+      } else {
+        this.store.setDiff(reviewId, rawDiff);
+        round = this.store.startRound(reviewId, opts.round, roundInput);
+      }
       prompt =
         round.round === 1
           ? // 首轮重试:那轮的 note 就是入口填的附加上下文
@@ -1372,11 +1444,7 @@ export class ReviewManager extends EventEmitter {
               note: opts.note,
             });
       opts.onStage?.('agent');
-      baseInstructions = await loadBaseInstructions({
-        cwd: prepared.cwd,
-        intensity: opts.intensity,
-        canSearch: !!source.searchCode,
-      });
+
     } catch (e) {
       release();
       await source.dispose();
@@ -1506,6 +1574,10 @@ export class ReviewManager extends EventEmitter {
     const epoch = this.teardownEpoch(reviewId);
     const source = createSource(targetOf(review));
     const prepared = await source.prepare();
+    if (review.localReview && prepared.headSha !== this.store.getRound(reviewId, review.currentRound)?.headSha) {
+      await source.dispose();
+      throw new Error('本地代码已不同于本轮审核快照,请先刷新本地并复审后继续追问');
+    }
     const baseInstructions = await loadBaseInstructions({
       cwd: prepared.cwd,
       intensity: review.intensity,
