@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import type { DiffFile, DiffHunk, DiffLine } from '@shared/diff';
 import type { Discussion, Finding, Triage } from '@shared/domain';
@@ -17,6 +18,7 @@ import { PencilIcon } from './PencilIcon';
 import { SelectionPopover } from './SelectionPopover';
 import { DiffFindBar } from './DiffFindBar';
 import { CopyFilePathButton } from './CopyFilePathButton';
+import { EditorLineStore } from './editor-line-store';
 import { primaryModifier } from '../../keys';
 import { useIsActiveTab } from '../../review/TabVisibility';
 import {
@@ -146,6 +148,17 @@ const ViewIcon = ({ view }: { view: DiffView }) =>
     </svg>
   );
 
+/** 独立订阅当前文件行号:普通代码点击只更新受影响的文件头。 */
+function EditorFileActions({ file, store, render }: {
+  file: DiffFile;
+  store: EditorLineStore;
+  render: NonNullable<DiffPaneProps['renderFileActions']>;
+}) {
+  const subscribe = useCallback((listener: () => void) => store.subscribe(file.path, listener), [store, file.path]);
+  const line = useSyncExternalStore(subscribe, () => store.get(file.path));
+  return <>{render(file.path, file.binary ? undefined : line ?? file.hunks[0]?.lines.find((entry) => entry.newLine !== null)?.newLine ?? 1)}</>;
+}
+
 export interface DiffPaneProps {
   renderFileActions?: (path: string, line?: number) => React.ReactNode;
   onOpenLine?: (path: string, line: number) => Promise<void>;
@@ -224,12 +237,12 @@ export function DiffPane(props: DiffPaneProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<{ pick: AnchorPick; top: number; left: number } | null>(null);
   const [composeAt, setComposeAt] = useState<Compose | null>(null);
-  const [editorLine, setEditorLine] = useState<{ path: string; line: number } | null>(null);
+  const [editorLines] = useState(() => new EditorLineStore());
   const [editorError, setEditorError] = useState('');
   useEffect(() => {
     const finding = findings.find((entry) => entry.id === focusFindingId);
-    setEditorLine(finding ? { path: finding.file, line: finding.line } : null);
-  }, [findings, focusFindingId, props.focusFindingNonce]);
+    editorLines.select(finding ? { path: finding.file, line: finding.line } : null);
+  }, [findings, focusFindingId, props.focusFindingNonce, editorLines]);
 
   const onCodeClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -238,7 +251,7 @@ export function DiffPane(props: DiffPaneProps) {
     const file = row?.closest<HTMLElement>('.diff-file')?.dataset.path;
     const line = row ? rowNewLine(row) : null;
     if (!file || line == null) return;
-    setEditorLine({ path: file, line });
+    editorLines.select({ path: file, line });
     if (primaryModifier(event) && props.onOpenLine) {
       event.preventDefault();
       setEditorError('');
@@ -704,7 +717,7 @@ export function DiffPane(props: DiffPaneProps) {
       {files.map((f) => (
         <DiffFileView
           key={f.path}
-          fileActions={props.renderFileActions?.(f.path, f.binary ? undefined : editorLine?.path === f.path ? editorLine.line : f.hunks[0]?.lines.find((line) => line.newLine !== null)?.newLine ?? 1)}
+          fileActions={props.renderFileActions && <EditorFileActions file={f} store={editorLines} render={props.renderFileActions} />}
           file={f}
           findings={byFile.get(f.path) ?? []}
           discussions={discByFile.get(f.path) ?? []}
