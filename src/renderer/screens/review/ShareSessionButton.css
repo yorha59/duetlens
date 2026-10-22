@@ -1,0 +1,9 @@
+.share-session-action { position: relative; display: inline-flex; flex-shrink: 0; }
+.share-session-action > button { white-space: nowrap; }
+.share-session-popover { -webkit-app-region: no-drag; position: absolute; z-index: 50; right: 0; top: calc(100% + 10px); width: 340px; box-sizing: border-box; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px #0004; }
+.share-session-popover p { margin: 0 18px 12px 0; color: var(--text-dim); font: 12px/1.6 var(--sans); white-space: normal; overflow-wrap: anywhere; }
+.share-session-popover p[role="status"] { color: var(--green); }
+.share-session-popover p[role="alert"] { color: var(--red); }
+.share-session-popover input { box-sizing: border-box; width: 100%; margin-bottom: 12px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: 11px var(--mono); }
+.share-session-popover button { border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; background: var(--card); color: var(--text-dim); cursor: pointer; font: 12px var(--sans); }
+.share-session-popover .share-session-close { position: absolute; right: 8px; top: 8px; border: 0; padding: 0 4px; font-size: 18px; }

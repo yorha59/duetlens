@@ -4,6 +4,8 @@ import { registerIpcHandlers } from '@backend/ipc';
 import { openDatabase } from '@backend/db/database';
 import { ReviewStore } from '@backend/db/review-store';
 import { piExtensionPath } from '@backend/agent/pi/pi-agent';
+import { SessionShareServer } from '@backend/share/session-share-server';
+import { SharedSessionReader } from '@backend/share/session-reader';
 import { ReviewManager } from '@backend/review/review-manager';
 import { createCompletionNotifier } from '@backend/notify/completion-notifier';
 import { hydrateEnv } from '@backend/env/shell-env';
@@ -26,6 +28,7 @@ if (userDataOverride) {
 const envReady = hydrateEnv();
 
 let manager: ReviewManager;
+let shareServer: SessionShareServer | undefined;
 let mainWindow: BrowserWindow | null = null;
 /** whenReady 里的初始化是否已走完(IPC 已注册、首个窗口已建)。 */
 let ready = false;
@@ -145,7 +148,8 @@ app.whenReady().then(async () => {
   await envReady;
 
   const db = openDatabase(path.join(app.getPath('userData'), 'duetlens.db'));
-  manager = new ReviewManager(new ReviewStore(db), undefined, {
+  const store = new ReviewStore(db);
+  manager = new ReviewManager(store, undefined, {
     snapshotRoot: path.join(app.getPath('userData'), 'review-snapshots'),
     pi: {
       extensionPath: piExtensionPath({
@@ -175,7 +179,11 @@ app.whenReady().then(async () => {
       await cleanupSessions();
     },
   });
-  registerIpcHandlers({ manager, broadcast, updater });
+  shareServer = new SessionShareServer(store, new SharedSessionReader(store, path.join(app.getPath('userData'), 'review-snapshots')),
+    path.join(app.getPath('userData'), 'share-server.json'));
+  // 重启恢复已有链接;启动失败不影响审核,点击分享时可重试并显示具体错误。
+  if (store.hasReviewShares()) void shareServer.start().catch(() => {});
+  registerIpcHandlers({ manager, broadcast, updater, shareServer });
 
   // 长任务完成提示:焦点判定 + 原生通知归 main(独占 BrowserWindow/Notification);
   // review-event 已流经 main,此处再挂一个消费者驱动通知。
@@ -220,7 +228,7 @@ let installingUpdate = false;
  * 就成了孤儿(POSIX 不因父进程退出而杀子进程),一路活到用户手动 kill。
  */
 function cleanupSessions(): Promise<unknown> {
-  const cleanup = manager?.disposeAll() ?? Promise.resolve();
+  const cleanup = Promise.allSettled([manager?.disposeAll(), shareServer?.close()]);
   const deadline = new Promise((r) => setTimeout(r, QUIT_CLEANUP_TIMEOUT_MS));
   // 拆会话失败也照样往下走,别把错误挡在退出前面
   return Promise.race([cleanup, deadline]).catch(() => undefined);

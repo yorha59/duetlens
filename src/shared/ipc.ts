@@ -45,6 +45,8 @@ export const IpcChannels = {
   reviewList: 'review:list',
   reviewListRecent: 'review:list-recent',
   reviewGet: 'review:get',
+  reviewShare: 'review:share',
+  reviewRevokeShare: 'review:revoke-share',
   reviewFindings: 'review:findings',
   reviewDiff: 'review:diff',
   reviewLatestDiff: 'review:latest-diff',
@@ -465,6 +467,9 @@ export interface DuetlensApi {
     /** 入口「最近的审核」:review 附带 finding/discussion/已提交计数。 */
     listRecent(): Promise<RecentReview[]>;
     get(id: string): Promise<Review | null>;
+    /** 复制当前视图的本机实时读取链接。 */
+    shareSession(reviewId: string): Promise<{ url: string }>;
+    revokeShare(reviewId: string): Promise<void>;
     findings(reviewId: string): Promise<Finding[]>;
     /** 本次改动的结构化 diff(DiffPane 渲染);未缓存返回空数组。 */
     diff(reviewId: string): Promise<DiffFile[]>;

@@ -315,7 +315,7 @@ export class ReviewManager extends EventEmitter {
       this.assertWorkspaceIdle(remote.id);
       this.workspaceBusy.add(remote.id);
       const source = this.makeSource(targetOf(remote, this.snapshotRoot));
-      try { await source.prepare(); this.store.setDiff(remote.id, await source.getDiff()); }
+      try { const prepared = await source.prepare(); this.store.setDiff(remote.id, await source.getDiff()); this.store.setWorkspaceSnapshotTree(remote.id, prepared.headSha ?? null); }
       finally { await source.dispose(); this.workspaceBusy.delete(remote.id); }
     }
     const selected = this.store.setWorkspaceMode(remote.id, mode);

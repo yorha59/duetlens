@@ -14,7 +14,7 @@ async function main() {
   store.addMessage(finding.discussionId, 'user', 'existing discussion');
   store.setDiff(review.id, 'old remote diff');
   // 模拟旧版库,新增列只能追加迁移,存量 PR 默认仍用远端。
-  db.exec('DROP TABLE workspace_finding_links; DROP TABLE workspace_views; DROP INDEX idx_reviews_workspace; ALTER TABLE reviews DROP COLUMN workspace_remote_id; ALTER TABLE reviews DROP COLUMN workspace_snapshot_tree; ALTER TABLE reviews DROP COLUMN local_review; ALTER TABLE reviews DROP COLUMN local_base_ref; ALTER TABLE review_rounds DROP COLUMN scan_diff;');
+  db.exec('DROP TABLE review_shares; DROP TABLE workspace_finding_links; DROP TABLE workspace_views; DROP INDEX idx_reviews_workspace; ALTER TABLE reviews DROP COLUMN workspace_remote_id; ALTER TABLE reviews DROP COLUMN workspace_snapshot_tree; ALTER TABLE reviews DROP COLUMN local_review; ALTER TABLE reviews DROP COLUMN local_base_ref; ALTER TABLE review_rounds DROP COLUMN scan_diff;');
   db.pragma(`user_version = ${25}`);
   migrate(db);
   assert.equal(store.getReview(review.id)!.localReview, false);

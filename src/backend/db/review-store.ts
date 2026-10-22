@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { AgentErrorKind } from '@shared/agent-events';
 import type { RecentReview, WorkspaceState } from '@shared/ipc';
 import type { DB } from './database';
@@ -401,6 +401,31 @@ export class ReviewStore {
     const state = this.getWorkspaceState(id);
     this.db.prepare(`INSERT INTO workspace_views (remote_id, synced_commit) VALUES (?, ?)
       ON CONFLICT(remote_id) DO UPDATE SET synced_commit = excluded.synced_commit`).run(state.remoteId, commit);
+  }
+
+  createReviewShare(reviewId: string): string {
+    if (!this.getReview(reviewId)) throw new Error('审核任务不存在');
+    const existing = this.db.prepare('SELECT token FROM review_shares WHERE review_id = ?').get(reviewId) as { token: string } | undefined;
+    if (existing) return existing.token;
+    const token = randomBytes(32).toString('base64url');
+    this.db.prepare('INSERT INTO review_shares (token, review_id, created_at) VALUES (?, ?, ?)').run(token, reviewId, now());
+    return token;
+  }
+
+  getSharedReviewId(token: string): string | null {
+    return (this.db.prepare('SELECT review_id FROM review_shares WHERE token = ?').get(token) as { review_id: string } | undefined)?.review_id ?? null;
+  }
+
+  hasReviewShares(): boolean {
+    return !!this.db.prepare('SELECT 1 FROM review_shares LIMIT 1').get();
+  }
+
+  revokeReviewShare(reviewId: string): void {
+    this.db.prepare('DELETE FROM review_shares WHERE review_id = ?').run(reviewId);
+  }
+
+  setWorkspaceSnapshotTree(id: string, head: string | null): void {
+    this.db.prepare('UPDATE reviews SET workspace_snapshot_tree = ? WHERE id = ?').run(head, id);
   }
 
   getWorkspaceSnapshotTree(id: string): string | null {

@@ -39,6 +39,7 @@ import { LensScanArt } from '../components/LensScanArt';
 import { Resizer } from './review/Resizer';
 import { ReviewStatusBar } from './review/StatusBar';
 import { describeRoundError, describeSendFailure } from './review/round-error';
+import { ShareSessionButton } from './review/ShareSessionButton';
 import { WorkspaceToolbar } from './review/WorkspaceToolbar';
 import { RerunPanel } from './review/RerunPanel';
 import { ScopeSwitcher } from './review/ScopeMenu';
@@ -1148,6 +1149,7 @@ function ReviewPane({
           {pr?.nwo && <span className="mono nwo">{pr.nwo}</span>}
         </div>
         <span className="spacer" />
+        {review && <ShareSessionButton reviewId={review.id} />}
         {workspaceToolbar}
         {/* 还没机审过就没有「上一轮」可带,重跑那颗按钮在这里指向一件不存在的事 */}
         {!unscanned && (

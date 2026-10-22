@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, clipboard, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
@@ -21,6 +21,7 @@ import type { AgentKind, ReviewUiState, Triage, UiSettings } from '@shared/domai
 import type { EnvCheckOptions } from '@shared/environment';
 import type { PromptSaveInput } from '@shared/prompt';
 import type { ReviewManager } from '../review/review-manager';
+import type { SessionShareServer } from '../share/session-share-server';
 import type { Updater } from '../update/updater';
 import { resolvePrUrl } from '../source/source-discovery';
 import { detectEditors, openEditorFile, resolveEditorFile } from '../editor/local-editors';
@@ -30,10 +31,17 @@ export interface IpcDeps {
   /** 把领域事件推给所有 renderer(main 提供,通常遍历 BrowserWindow) */
   broadcast: (channel: string, payload: unknown) => void;
   updater: Updater;
+  shareServer: SessionShareServer;
 }
 
 /** 注册 main 侧全部 IPC handler,并把 ReviewManager 事件转发给 renderer。 */
-export function registerIpcHandlers({ manager, broadcast, updater }: IpcDeps): void {
+export function registerIpcHandlers({ manager, broadcast, updater, shareServer }: IpcDeps): void {
+  ipcMain.handle(IpcChannels.reviewShare, async (_event, id: string) => {
+    const result = await shareServer.share(id);
+    clipboard.writeText(result.url);
+    return result;
+  });
+  ipcMain.handle(IpcChannels.reviewRevokeShare, (_event, id: string) => shareServer.revoke(id));
   ipcMain.handle(IpcChannels.editorList, async () =>
     (await detectEditors()).map(({ id, name }) => ({ id, name })),
   );
