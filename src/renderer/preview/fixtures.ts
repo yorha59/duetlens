@@ -921,6 +921,11 @@ export function installPreviewApi(): void {
     });
   }
 
+  let workspaceMode: 'local' | 'remote' = 'remote';
+  let localReview: Review | null = params.has('workspace') ? { ...review, id: 'demo-local', workspaceRemoteId: 'demo', localReview: true, repoPath: '/projects/podcast-go', currentRound: 0, summaryBody: null } : null;
+  if (localReview) review = { ...review, repoPath: localReview.repoPath };
+  let workspaceSynced = false;
+  const workspaceState = () => ({ remoteId: 'demo', localId: localReview?.id ?? null, activeMode: workspaceMode, syncedCommit: workspaceSynced ? 'abcdef1234567890' : null });
   const api: DuetlensApi = {
     editor: {
       list: async () => [{ id: 'cursor', name: 'Cursor' }, { id: 'xcode', name: 'Xcode' }],
@@ -953,9 +958,20 @@ export function installPreviewApi(): void {
       return { ...codexOk, pi: piOk, gh: ghOk };
     },
     review: {
+      workspaceState: async () => workspaceState(),
+      switchWorkspace: async (_id, mode, directory) => {
+        if (mode === 'local' && !localReview) {
+          review = { ...review, repoPath: directory || '/projects/podcast-go' };
+          localReview = { ...review, id: 'demo-local', workspaceRemoteId: 'demo', localReview: true, currentRound: 0, summaryBody: null };
+        }
+        workspaceMode = mode;
+        return workspaceState();
+      },
+      syncStatus: async () => ({ pending: !!localReview && !workspaceSynced }),
+      applyLocal: async () => { review = { ...review, summaryBody: localReview?.summaryBody ?? '本地审核结论' }; return review; },
       attachWorkspace: async (_id, repoPath) => { review = { ...review, repoPath }; fire({ reviewId: review.id, type: 'review', payload: review }); return review; },
       syncPlan: async () => ({ token: 'preview', branch: 'feat/streaming-transcode', repository: 'example/podcast-go', files: ['src/pipeline.ts'], commitsAhead: 1 }),
-      syncPush: async () => ({ commit: 'abcdef1234567890', prUrl: 'https://github.com/example/podcast-go/pull/1' }),
+      syncPush: async () => { workspaceSynced = true; return { commit: 'abcdef1234567890', prUrl: 'https://github.com/example/podcast-go/pull/1' }; },
       list: async () => [review],
       listRecent: async () => (params.has('empty') ? [] : RECENT_REVIEWS),
       // ?review=error 模拟读库失败,自查依赖它的屏不会卡在加载态
@@ -965,10 +981,11 @@ export function installPreviewApi(): void {
         // 认不出的 id 一律 null,与真实后端一致 —— 回落到 demo 的话,`?restore=` 里那些
         // 已删 / 已过期的 id 会被喂成一条真 review,恢复时该被剔除的那一支就永远验不到。
         if (id === 'demo') return review;
+        if (id === 'demo-local') return localReview;
         if (id === SCOPE_CHILD_ID) return scopeChild(activeScope ?? SCOPE_CHILD_SHA);
         return recentReviewOf(id);
       },
-      findings: async () => findings,
+      findings: async (id) => id === 'demo-local' ? [] : findings,
       diff: async () => diff,
       // ?submit=invalid 时最新 diff 已推进(锚点落空),?latest=error 模拟 gh 读不到
       latestDiff: async () => {
@@ -992,7 +1009,7 @@ export function installPreviewApi(): void {
         };
       },
       fileContent: async (_r, path) => (path === 'src/pipeline.ts' ? PIPELINE_SRC : null),
-      discussions: async () => discussions,
+      discussions: async (id) => id === 'demo-local' ? [] : discussions,
       proposals: async () => proposals,
       messages: async (discussionId) => msgStore[discussionId] ?? [],
       // ?start 模拟大 PR 的慢启动(阶段按真实顺序推进,diff 停够久能看到「拉取偏慢」提示);
@@ -1015,6 +1032,7 @@ export function installPreviewApi(): void {
         return review;
       },
       rounds: async (id) => {
+        if (id === 'demo-local') return [];
         const other = recentReviewOf(id);
         return other ? roundsOf(other) : rounds;
       },

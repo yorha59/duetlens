@@ -19,3 +19,13 @@
 .workspace-panel .submit-cta { background: var(--accent-solid); color: var(--on-solid); border: 0; border-radius: 6px; padding: 8px 12px; font-weight: 600; }
 
 .workspace-panel input[type="checkbox"] { width: auto; margin-right: 6px; }
+
+.workspace-toggle { display: flex; gap: 0; }
+.workspace-toggle .rerun-cta { border-radius: 0; }
+.workspace-toggle .rerun-cta:first-child { border-radius: 6px 0 0 6px; }
+.workspace-toggle .rerun-cta:last-child { border-radius: 0 6px 6px 0; }
+.workspace-toggle button[aria-pressed="true"] { color: var(--agent-2); background: var(--agent-soft); border-color: var(--agent-2); }
+.workspace-sync-cta { color: var(--agent-2); }
+.workspace-apply { margin-top: 18px; border-top: 1px solid var(--border); }
+.workspace-toggle { flex-shrink: 0; }
+.workspace-toggle button { white-space: nowrap; }

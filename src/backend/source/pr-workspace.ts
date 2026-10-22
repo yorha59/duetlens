@@ -79,6 +79,23 @@ export class PrWorkspace {
     return { repoPath: info.repoPath, base };
   }
 
+  /** 轻量状态查询:只读状态与提交标识,不生成快照或启动审核。 */
+  async syncStatus(review: Review) {
+    if (!review.repoPath) return { pending: false };
+    const info = await this.inspect(review, review.repoPath);
+    const dirty = await this.run('git', ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], info.repoPath);
+    const head = (await this.run('git', ['rev-parse', 'HEAD'], info.repoPath)).trim();
+    return { pending: !!dirty.length || head !== info.pr.head.sha };
+  }
+
+  async verifySyncedReview(review: Review, commit: string, reviewedTree: string) {
+    const info = await this.inspect(review, review.repoPath ?? '', true);
+    const liveRemote = (await this.run('git', ['ls-remote', '--exit-code', info.remoteUrl, `refs/heads/${info.pr.head.ref}`], info.repoPath)).split(/\s/)[0];
+    if (info.pr.head.sha !== commit || liveRemote !== commit) throw new Error('远端 PR 在同步后已有更新,请重新同步并审核后应用结论');
+    const tree = (await this.run('git', ['rev-parse', `${commit}^{tree}`], info.repoPath)).trim();
+    if (tree !== reviewedTree) throw new Error('本地审核快照与已推送代码不同,请先复审当前本地改动');
+  }
+
   async plan(review: Review): Promise<CodeSyncPlan> {
     return (await this.preparePlan(review)).public;
   }

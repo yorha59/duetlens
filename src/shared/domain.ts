@@ -339,6 +339,8 @@ export interface Review {
   repoPath: string | null;
   /** PR 身份不变,仅将本轮代码来源切到关联工作区。 */
   localReview?: boolean;
+  /** 本地独立视图所属的远端 PR 任务。 */
+  workspaceRemoteId?: string | null;
   /** 本地 PR 审核的共同祖先基线,包含分支提交与未提交改动。 */
   localBaseRef?: string | null;
   /** 跑这条 review 的 agent;建行时定死,复审与追问都沿用 */

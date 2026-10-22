@@ -241,8 +241,9 @@ export function App({
    */
   const openReview = async (id: string, discussionId?: string) => {
     const target = await window.duetlens.review.get(id).catch(() => null);
+    if (target?.workspaceRemoteId) await window.duetlens.review.switchWorkspace(target.workspaceRemoteId, 'local');
     const scopeSha = target?.parentReviewId ? target.headRef : null;
-    const tabId = target?.parentReviewId ?? id;
+    const tabId = target?.workspaceRemoteId ?? target?.parentReviewId ?? id;
     const r = openTab(tabStateRef.current, tabId);
     if (!r.ok) {
       // 提示只画在 tab 条上,而 tab 条只在 review 屏 —— 停在入口 / 历史屏原地不动地

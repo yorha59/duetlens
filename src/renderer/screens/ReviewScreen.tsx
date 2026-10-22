@@ -7,6 +7,7 @@ import type {
   DiscussionAnchor,
   FindingEditInput,
   LiveCapacity,
+  WorkspaceState,
   ReviewScopes,
   ReviewStartStage,
 } from '@shared/ipc';
@@ -38,7 +39,7 @@ import { LensScanArt } from '../components/LensScanArt';
 import { Resizer } from './review/Resizer';
 import { ReviewStatusBar } from './review/StatusBar';
 import { describeRoundError, describeSendFailure } from './review/round-error';
-import { WorkspacePanel } from './review/WorkspacePanel';
+import { WorkspaceToolbar } from './review/WorkspaceToolbar';
 import { RerunPanel } from './review/RerunPanel';
 import { ScopeSwitcher } from './review/ScopeMenu';
 import { newStartId, roundSteps, StartSteps, type StartStep } from '../components/StartProgress';
@@ -122,6 +123,9 @@ export function ReviewScreen(props: {
 }) {
   const { reviewId, onScopeChange, scopeRequest, onScopeHandled } = props;
   // 容器那条 review 只为判断「这枚 tab 有没有范围可切」;三栏的数据源在 ReviewPane 里各自拉。
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [workspaceModal, setWorkspaceModal] = useState(false);
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [container, setContainer] = useState<Review | null>(null);
   // undefined = 还没读到上次停在哪(此时先按整个 PR 画,避免首帧闪一下别的范围)
   const [activeSha, setActiveSha] = useState<string | null | undefined>(undefined);
@@ -149,12 +153,13 @@ export function ReviewScreen(props: {
 
   // 只有顶层、未钉死在某个 commit 上的 PR 才是容器(见 ReviewManager.requireContainer)
   const isContainer =
-    container?.source === 'github-pr' && !container.localReview && !container.headRef && !container.parentReviewId;
+    container?.source === 'github-pr' && workspace?.activeMode === 'remote' && !container.localReview && !container.headRef && !container.parentReviewId;
 
   useEffect(() => {
     if (!reviewId) return;
     let alive = true;
     setContainer(null);
+    setWorkspace(null);
     setActiveSha(undefined);
     setScopeId(null);
     setPending(null);
@@ -175,6 +180,7 @@ export function ReviewScreen(props: {
       void window.duetlens.review.get(reviewId).then((updated) => {
         if (!alive) return;
         setContainer(updated);
+        if (updated?.source === 'github-pr' && !updated.headRef && !updated.parentReviewId) void window.duetlens.review.workspaceState(reviewId).then((state) => { if (alive) setWorkspace(state); }).catch(() => {});
         if (updated?.localReview) { setActiveSha(null); setScopeId(null); }
       });
     });
@@ -183,6 +189,13 @@ export function ReviewScreen(props: {
       stop();
     };
   }, [reviewId]);
+
+  useEffect(() => {
+    if (!reviewId || container?.source !== 'github-pr' || container.headRef || container.parentReviewId) return;
+    let alive = true;
+    void window.duetlens.review.workspaceState(reviewId).then((state) => { if (alive) setWorkspace(state); }).catch(() => {});
+    return () => { alive = false; };
+  }, [reviewId, container?.source, container?.headRef, container?.parentReviewId]);
 
   // 切到某个范围:先拉它的 diff(已开过的直接命中缓存),拿到子行 id 再换屏。
   // **失败留在原范围** —— 半路把三栏清空换成一句错误,等于把正在读的那份 diff 也一并收走。
@@ -313,7 +326,7 @@ export function ReviewScreen(props: {
     loadScopes();
   }, [loadScopes]);
 
-  const scopeReviewId = isContainer && activeSha ? scopeId : reviewId;
+  const scopeReviewId = workspace?.activeMode === 'local' ? workspace.localId : isContainer && activeSha ? scopeId : reviewId;
   useEffect(() => {
     if (scopeReviewId) onScopeChange?.(scopeReviewId);
   }, [scopeReviewId, onScopeChange]);
@@ -345,10 +358,13 @@ export function ReviewScreen(props: {
     <ReviewPane
       {...props}
       // 子行还没拿到之前先挂着容器那条:三栏此刻被占位盖住,只是别让整屏空一拍
-      key={scopeReviewId ?? reviewId}
+      key={`${scopeReviewId ?? reviewId}:${workspaceRevision}`}
       reviewId={scopeReviewId ?? reviewId}
       focusRequest={scopeSettled ? props.focusRequest : null}
       scope={scope}
+      workspaceModal={workspaceModal}
+      workspaceToolbar={container?.source === 'github-pr' && !container.headRef && !container.parentReviewId ?
+        <WorkspaceToolbar review={container} state={workspace} onChange={setWorkspace} onModalChange={setWorkspaceModal} onApplied={() => { setActiveSha(null); setScopeId(null); if (reviewId) void window.duetlens.review.setActiveScope(reviewId, null); setWorkspaceRevision((revision) => revision + 1); }} /> : null}
     />
   );
 }
@@ -364,6 +380,8 @@ function ReviewPane({
   onOpenReview,
   onUnsavedChange,
   scope,
+  workspaceToolbar,
+  workspaceModal,
 }: {
   reviewId: string | null;
   onOpenSubmit?: () => void;
@@ -381,6 +399,8 @@ function ReviewPane({
   onUnsavedChange?: (hasUnsaved: boolean) => void;
   /** 范围切换绑定;这条 review 不是 PR 容器时为 null(没有范围这回事) */
   scope?: ScopeBinding | null;
+  workspaceToolbar?: ReactNode;
+  workspaceModal?: boolean;
 }) {
   // 多 tab 下所有已开的 review 都挂载着,只有活跃那枚可见(语义见 TabVisibility)。
   // 全局键位、定位请求、滚动位置三件事都按它收口。
@@ -448,7 +468,6 @@ function ReviewPane({
   const [helpOpen, setHelpOpen] = useState(false);
   // 重跑确认面板
   const [rerunOpen, setRerunOpen] = useState(false);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   // 会话位满载时在跑的那几条(与入口屏同一块提示)。不进 round-error 那两张表:
   // 满载不是「这一轮跑挂了」而是根本没开跑,且要附一份现拉的动态名单,纯文案表放不下。
   const [capacity, setCapacity] = useState<LiveCapacity | null>(null);
@@ -888,7 +907,7 @@ function ReviewPane({
   // 有模态压在上面时,导航键一律挂起。判据必须是**所有**打开中的模态,不能只认帮助层:
   // 重跑面板同样是带 scrim 的 dialog,漏掉它时在说明输入框里按 ⌘F 会把焦点抢到对话框背后的
   // 检索条,⌘G 还会在背后换命中并滚动 diff。DiffPane 自带的 ⌘G 也吃这同一个判据。
-  const modalOpen = helpOpen || rerunOpen || workspaceOpen;
+  const modalOpen = helpOpen || rerunOpen || !!workspaceModal;
 
   // 全局导航快捷键:? 帮助 / ⌘1-3 切 tab / ⌘U 切 diff / ⌘F 查 diff 内容 / ⌘⇧F 聚焦过滤框 /
   // ⌘E 重跑 / Esc 关闭。
@@ -1129,9 +1148,7 @@ function ReviewPane({
           {pr?.nwo && <span className="mono nwo">{pr.nwo}</span>}
         </div>
         <span className="spacer" />
-        {isGithub && !review.headRef && !review.parentReviewId && <button type="button" className="rerun-cta" disabled={scanning || !!scope?.pending} onClick={() => setWorkspaceOpen(true)}>
-          {review.localReview ? '本地代码 · 同步' : '关联本地仓库'}
-        </button>}
+        {workspaceToolbar}
         {/* 还没机审过就没有「上一轮」可带,重跑那颗按钮在这里指向一件不存在的事 */}
         {!unscanned && (
           <button
@@ -1166,7 +1183,6 @@ function ReviewPane({
           </button>
         )}
       </header>
-      {workspaceOpen && review && <WorkspacePanel review={review} onClose={() => setWorkspaceOpen(false)} />}
       {helpOpen && <KbdHelp onClose={() => setHelpOpen(false)} />}
       {rerunOpen && (
         <RerunPanel

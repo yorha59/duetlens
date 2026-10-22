@@ -51,6 +51,10 @@ export const IpcChannels = {
   reviewFileContent: 'review:file-content',
   reviewStart: 'review:start',
   reviewRerun: 'review:rerun',
+  reviewWorkspaceState: 'review:workspace-state',
+  reviewWorkspaceSwitch: 'review:workspace-switch',
+  reviewSyncStatus: 'review:sync-status',
+  reviewApplyLocal: 'review:apply-local',
   reviewAttachWorkspace: 'review:attach-workspace',
   reviewSyncPlan: 'review:sync-plan',
   reviewSyncPush: 'review:sync-push',
@@ -160,6 +164,17 @@ export interface ReviewStartProgress {
 export interface WorkspaceTarget {
   mode: 'local' | 'remote';
   repoPath?: string;
+}
+
+export interface WorkspaceState {
+  remoteId: string;
+  localId: string | null;
+  activeMode: 'local' | 'remote';
+  syncedCommit: string | null;
+}
+export interface WorkspaceSyncStatus {
+  pending: boolean;
+  error?: string;
 }
 
 export interface CodeSyncPlan {
@@ -466,6 +481,10 @@ export interface DuetlensApi {
      * 立即返回新轮次记录,扫描后台跑。上一轮仍在扫描中时抛错。
      */
     rerun(reviewId: string, input?: RerunInput): Promise<ReviewRound>;
+    workspaceState(reviewId: string): Promise<WorkspaceState>;
+    switchWorkspace(reviewId: string, mode: 'local' | 'remote', repoPath?: string): Promise<WorkspaceState>;
+    syncStatus(reviewId: string): Promise<WorkspaceSyncStatus>;
+    applyLocal(reviewId: string): Promise<Review>;
     attachWorkspace(reviewId: string, repoPath: string): Promise<Review>;
     syncPlan(reviewId: string): Promise<CodeSyncPlan>;
     syncPush(reviewId: string, token: string, message: string): Promise<CodeSyncResult>;

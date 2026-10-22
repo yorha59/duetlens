@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentErrorKind } from '@shared/agent-events';
-import type { RecentReview } from '@shared/ipc';
+import type { RecentReview, WorkspaceState } from '@shared/ipc';
 import type { DB } from './database';
 import {
+  findingNarrative,
   DEFAULT_UI_SETTINGS,
   isAutoClosedFixed,
   isStillPresent,
@@ -50,6 +51,7 @@ interface ReviewRow {
   head_ref: string | null;
   parent_review_id: string | null;
   repo_path: string | null;
+  workspace_remote_id?: string | null;
   local_review?: number;
   local_base_ref?: string | null;
   agent: string;
@@ -163,6 +165,7 @@ function toReview(r: ReviewRow): Review {
     parentReviewId: r.parent_review_id,
     repoPath: r.repo_path,
     localReview: !!r.local_review,
+    workspaceRemoteId: r.workspace_remote_id ?? null,
     localBaseRef: r.local_base_ref ?? null,
     agent: r.agent as AgentKind,
     agentSessionId: r.agent_session_id,
@@ -377,6 +380,107 @@ export class ReviewStore {
       .run(repoPath, localReview ? 1 : 0, baseRef, now(), reviewId);
   }
 
+  getWorkspaceState(id: string): WorkspaceState {
+    const review = this.getReview(id);
+    if (!review || review.source !== 'github-pr' || review.headRef || review.parentReviewId) throw new Error('请在整个 PR 中切换本地和远端');
+    const remoteId = review.workspaceRemoteId ?? id;
+    const row = this.db.prepare('SELECT * FROM workspace_views WHERE remote_id = ?').get(remoteId) as { active_mode: 'local' | 'remote'; synced_commit: string | null } | undefined;
+    const local = this.db.prepare('SELECT id FROM reviews WHERE workspace_remote_id = ?').get(remoteId) as { id: string } | undefined;
+    return { remoteId, localId: local?.id ?? null, activeMode: row?.active_mode ?? 'remote', syncedCommit: row?.synced_commit ?? null };
+  }
+
+  setWorkspaceMode(id: string, mode: 'local' | 'remote'): WorkspaceState {
+    const state = this.getWorkspaceState(id);
+    if (mode === 'local' && !state.localId) throw new Error('尚未关联本地审核');
+    this.db.prepare(`INSERT INTO workspace_views (remote_id, active_mode) VALUES (?, ?)
+      ON CONFLICT(remote_id) DO UPDATE SET active_mode = excluded.active_mode`).run(state.remoteId, mode);
+    return this.getWorkspaceState(id);
+  }
+
+  setSyncedCommit(id: string, commit: string): void {
+    const state = this.getWorkspaceState(id);
+    this.db.prepare(`INSERT INTO workspace_views (remote_id, synced_commit) VALUES (?, ?)
+      ON CONFLICT(remote_id) DO UPDATE SET synced_commit = excluded.synced_commit`).run(state.remoteId, commit);
+  }
+
+  getWorkspaceSnapshotTree(id: string): string | null {
+    return (this.db.prepare('SELECT workspace_snapshot_tree FROM reviews WHERE id = ?').get(id) as { workspace_snapshot_tree: string | null } | undefined)?.workspace_snapshot_tree ?? null;
+  }
+
+  createWorkspaceLocal(remoteId: string, repoPath: string, base: string, rawDiff: string, tree: string | null): Review {
+    return this.db.transaction(() => {
+      if (this.getWorkspaceState(remoteId).localId) throw new Error('已有关联的本地审核');
+      const remote = this.getReview(remoteId)!;
+      const local = this.createReview({ ...remote, currentRound: 0, status: 'reviewing', repoPath });
+      this.db.prepare('UPDATE reviews SET workspace_remote_id = ?, local_review = 1, local_base_ref = ?, workspace_snapshot_tree = ? WHERE id = ?').run(remoteId, base, tree, local.id);
+      this.setDiff(local.id, rawDiff);
+      return this.getReview(local.id)!;
+    })();
+  }
+
+  /** 老版本共用记录时的本地状态完整搬到独立视图;远端从未扫描快照重新开始。 */
+  splitLegacyWorkspace(remoteId: string, localId = randomUUID()): Review {
+    return this.db.transaction(() => {
+      const original = this.db.prepare('SELECT * FROM reviews WHERE id = ?').get(remoteId) as Record<string, unknown>;
+      if (!original.local_review || original.workspace_remote_id || this.getWorkspaceState(remoteId).localId) throw new Error('无需迁移');
+      const insert = (table: string, row: Record<string, unknown>) => {
+        const columns = Object.keys(row);
+        this.db.prepare(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).run(...Object.values(row));
+      };
+      insert('reviews', { ...original, id: localId, workspace_remote_id: remoteId, agent_session_id: null });
+      // 搬移而非复制讨论 ID,旧 finding 锚点、消息、提案之间的外键仍成立。
+      for (const table of ['discussions', 'findings', 'finding_proposals', 'review_rounds', 'review_diffs', 'review_ui_state']) {
+        this.db.prepare(`UPDATE ${table} SET review_id = ? WHERE review_id = ?`).run(localId, remoteId);
+      }
+      this.db.prepare('UPDATE review_rounds SET agent_session_id = NULL WHERE review_id = ?').run(localId);
+      this.db.prepare(`UPDATE reviews SET local_review = 0, local_base_ref = NULL, current_round = 0,
+        agent_session_id = NULL, summary_body = NULL, summary_files = '[]', summary_round = NULL, status = 'reviewing' WHERE id = ?`).run(remoteId);
+      this.setWorkspaceMode(remoteId, 'local');
+      return this.getReview(localId)!;
+    })();
+  }
+
+  /** 仅覆盖结论:远端自己的聊天和已发布评论身份保留,不会写 GitHub。 */
+  applyWorkspaceConclusions(localId: string, commit: string, rawDiff: string): Review {
+    return this.db.transaction(() => {
+      const local = this.getReview(localId)!;
+      const state = this.getWorkspaceState(localId);
+      if (state.localId !== localId) throw new Error('请从本地审核应用结论');
+      const remote = this.getReview(state.remoteId)!;
+      const round = remote.currentRound + 1;
+      this.startRound(remote.id, round, { headSha: commit, note: '使用已同步代码的本地审核结论覆盖远端结论。' });
+      // 未纳入新结论的旧条目归档为剔除;原讨论与提交链接仍可查看。
+      this.db.prepare("UPDATE findings SET triage = 'dismiss', dismiss_reason = '已被本地审核结论替换', auto_closed = 0, updated_at = ? WHERE review_id = ?").run(now(), remote.id);
+      const remoteFindings = this.listFindings(remote.id);
+      for (const finding of this.listFindings(localId)) {
+        const link = this.db.prepare('SELECT remote_id, source_updated_at FROM workspace_finding_links WHERE local_id = ?').get(finding.id) as { remote_id: string; source_updated_at: number } | undefined;
+        const existing = link ? this.getFinding(link.remote_id) : remoteFindings.find((f) =>
+          f.file === finding.file && f.line === finding.line && f.title === finding.title && f.body === finding.body &&
+          !this.db.prepare('SELECT 1 FROM workspace_finding_links WHERE remote_id = ?').get(f.id));
+        const target = existing ?? this.addFinding(remote.id, { ...finding, category: finding.category ?? undefined, suggestion: finding.suggestion ?? undefined }, finding.origin);
+        const fresh = link?.source_updated_at !== finding.updatedAt;
+        this.db.prepare(`INSERT INTO workspace_finding_links (local_id, remote_id, source_updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(local_id) DO UPDATE SET source_updated_at = excluded.source_updated_at`).run(finding.id, target.id, finding.updatedAt);
+        const source = this.db.prepare('SELECT * FROM findings WHERE id = ?').get(finding.id) as Record<string, unknown>;
+        const values = { ...source, body: findingNarrative(finding, local.currentRound), id: target.id, review_id: remote.id, discussion_id: target.discussionId,
+          round: existing?.round ?? round,
+          last_seen_round: fresh && finding.lastSeenRound === local.currentRound ? round : 0,
+          body_round: fresh && finding.bodyRound === local.currentRound ? round : 0,
+          verdict_round: fresh && finding.verdictRound === local.currentRound ? round : null,
+          submission: target.submission, submitted_url: target.submittedUrl, submitted_round: existing?.submittedRound ?? null,
+          created_at: target.createdAt, updated_at: now() };
+        const entries = Object.entries(values).filter(([key]) => key !== 'id');
+        this.db.prepare(`UPDATE findings SET ${entries.map(([key]) => `${key} = ?`).join(',')} WHERE id = ?`).run(...entries.map(([, value]) => value), target.id);
+        this.db.prepare('UPDATE discussions SET file = ?, line = ? WHERE id = ?').run(finding.file, finding.line, target.discussionId);
+      }
+      this.setDiff(remote.id, rawDiff);
+      this.writeAgentSummary(remote.id, local.summaryBody ?? '', local.summaryFiles);
+      this.finishRound(remote.id, round, 'done');
+      this.db.prepare('UPDATE reviews SET agent_session_id = NULL, status = ? WHERE id = ?').run(local.status === 'scanning' ? 'reviewing' : local.status, remote.id);
+      return this.getReview(remote.id)!;
+    })();
+  }
+
   getReview(id: string): Review | null {
     const r = this.db.prepare('SELECT * FROM reviews WHERE id = ?').get(id) as ReviewRow | undefined;
     return r ? toReview(r) : null;
@@ -397,18 +501,18 @@ export class ReviewStore {
    * 否则一条 PR 上明明有 findings、行上却写着 0(它们都记在子行名下)。
    */
   listRecentReviews(): RecentReview[] {
-    const scope = "(f.review_id = r.id OR f.review_id IN (SELECT id FROM reviews WHERE parent_review_id = r.id))";
+    const scope = "(f.review_id = r.id OR f.review_id IN (SELECT id FROM reviews WHERE parent_review_id = r.id OR workspace_remote_id = r.id))";
     const rows = this.db
       .prepare(
         `SELECT r.*,
             (SELECT COUNT(*) FROM findings f WHERE ${scope}) AS finding_count,
             (SELECT COUNT(*) FROM discussions d WHERE d.kind = 'user'
-               AND (d.review_id = r.id OR d.review_id IN (SELECT id FROM reviews WHERE parent_review_id = r.id))) AS discussion_count,
+               AND (d.review_id = r.id OR d.review_id IN (SELECT id FROM reviews WHERE parent_review_id = r.id OR workspace_remote_id = r.id))) AS discussion_count,
             (SELECT COUNT(*) FROM findings f WHERE f.submission = 'submitted' AND ${scope}) AS submitted_count,
             (SELECT COUNT(*) FROM reviews c WHERE c.parent_review_id = r.id) AS scope_count,
             (SELECT COUNT(*) FROM reviews c WHERE c.parent_review_id = r.id AND c.status = 'scanning') AS scanning_scope_count
          FROM reviews r
-         WHERE r.parent_review_id IS NULL
+         WHERE r.parent_review_id IS NULL AND r.workspace_remote_id IS NULL
          ORDER BY r.updated_at DESC`,
       )
       .all() as (ReviewRow & {
@@ -466,8 +570,8 @@ export class ReviewStore {
    */
   deleteReview(id: string): void {
     this.db.transaction(() => {
-      const row = this.db.prepare('SELECT parent_review_id, head_ref FROM reviews WHERE id = ?').get(id) as
-        | { parent_review_id: string | null; head_ref: string | null }
+      const row = this.db.prepare('SELECT parent_review_id, head_ref, workspace_remote_id FROM reviews WHERE id = ?').get(id) as
+        | { parent_review_id: string | null; head_ref: string | null; workspace_remote_id: string | null }
         | undefined;
       if (row?.parent_review_id && row.head_ref) {
         this.db
@@ -476,6 +580,7 @@ export class ReviewStore {
           )
           .run(row.parent_review_id, row.head_ref);
       }
+      if (row?.workspace_remote_id) this.db.prepare("UPDATE workspace_views SET active_mode = 'remote' WHERE remote_id = ?").run(row.workspace_remote_id);
       this.db.prepare('DELETE FROM reviews WHERE id = ?').run(id);
     })();
   }
@@ -489,7 +594,7 @@ export class ReviewStore {
    */
   pruneReviewsBefore(cutoff: number): number {
     return this.db
-      .prepare('DELETE FROM reviews WHERE updated_at < ? AND parent_review_id IS NULL')
+      .prepare('DELETE FROM reviews WHERE updated_at < ? AND parent_review_id IS NULL AND workspace_remote_id IS NULL')
       .run(cutoff).changes;
   }
 
@@ -507,7 +612,7 @@ export class ReviewStore {
   /** 只推容器行;供那些自己已经写过 updated_at 的 UPDATE 补上冒泡。顶层行无父,空转。 */
   private touchParent(reviewId: string, ts: number): void {
     this.db
-      .prepare('UPDATE reviews SET updated_at = ? WHERE id = (SELECT parent_review_id FROM reviews WHERE id = ?)')
+      .prepare('UPDATE reviews SET updated_at = ? WHERE id = (SELECT COALESCE(parent_review_id, workspace_remote_id) FROM reviews WHERE id = ?)')
       .run(ts, reviewId);
   }
 

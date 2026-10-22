@@ -328,9 +328,26 @@ const V27 = `
 ALTER TABLE review_rounds ADD COLUMN scan_diff TEXT;
 `;
 
+// 本地审核是独立记录;与 PR 提交范围的父子关系互不混用。
+const V28 = `
+ALTER TABLE reviews ADD COLUMN workspace_remote_id TEXT REFERENCES reviews(id) ON DELETE CASCADE;
+ALTER TABLE reviews ADD COLUMN workspace_snapshot_tree TEXT;
+CREATE UNIQUE INDEX idx_reviews_workspace ON reviews(workspace_remote_id) WHERE workspace_remote_id IS NOT NULL;
+CREATE TABLE workspace_views (
+  remote_id TEXT PRIMARY KEY REFERENCES reviews(id) ON DELETE CASCADE,
+  active_mode TEXT NOT NULL DEFAULT 'remote',
+  synced_commit TEXT
+);
+CREATE TABLE workspace_finding_links (
+  local_id TEXT PRIMARY KEY REFERENCES findings(id) ON DELETE CASCADE,
+  remote_id TEXT NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+  source_updated_at INTEGER NOT NULL
+);
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25, V26, V27,
+  V21, V22, V23, V24, V25, V26, V27, V28,
 ];
 
 export function migrate(db: Database): void {
