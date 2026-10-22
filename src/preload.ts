@@ -12,6 +12,10 @@ import type { UpdateStatus } from '@shared/update';
 
 // 唯一暴露给 renderer 的桥;沿 contextIsolation 边界只透出白名单方法。
 const api: DuetlensApi = {
+  editor: {
+    list: () => ipcRenderer.invoke(IpcChannels.editorList),
+    openFile: (reviewId, file, choose, line) => ipcRenderer.invoke(IpcChannels.editorOpenFile, reviewId, file, choose, line),
+  },
   getAppInfo: () => ipcRenderer.invoke(IpcChannels.appGetInfo),
   checkEnvironment: (opts) => ipcRenderer.invoke(IpcChannels.appCheckEnvironment, opts),
   review: {

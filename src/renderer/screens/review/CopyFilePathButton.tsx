@@ -13,10 +13,10 @@ export function CopyFilePathButton({ path }: { path: string }) {
   }, [status]);
 
   const label = status === 'copied'
-    ? '已复制路径'
+    ? '已复制'
     : status === 'error'
-      ? '复制失败,点击重试'
-      : '复制文件路径';
+      ? '重试复制'
+      : '复制路径';
 
   return (
     <button
@@ -43,7 +43,7 @@ export function CopyFilePathButton({ path }: { path: string }) {
           </>
         )}
       </svg>
-      <span className="sr-only" role="status">{status === 'idle' ? '' : label}</span>
+      <span role="status" aria-live="polite">{label}</span>
     </button>
   );
 }

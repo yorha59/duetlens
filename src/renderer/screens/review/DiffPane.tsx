@@ -147,6 +147,8 @@ const ViewIcon = ({ view }: { view: DiffView }) =>
   );
 
 export interface DiffPaneProps {
+  renderFileActions?: (path: string, line?: number) => React.ReactNode;
+  onOpenLine?: (path: string, line: number) => Promise<void>;
   files: DiffFile[];
   findings: Finding[];
   /** 讨论(含 user 线程);用于在 gutter 给有讨论/finding 的行打锚点圆点 */
@@ -222,6 +224,27 @@ export function DiffPane(props: DiffPaneProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<{ pick: AnchorPick; top: number; left: number } | null>(null);
   const [composeAt, setComposeAt] = useState<Compose | null>(null);
+  const [editorLine, setEditorLine] = useState<{ path: string; line: number } | null>(null);
+  const [editorError, setEditorError] = useState('');
+  useEffect(() => {
+    const finding = findings.find((entry) => entry.id === focusFindingId);
+    setEditorLine(finding ? { path: finding.file, line: finding.line } : null);
+  }, [findings, focusFindingId, props.focusFindingNonce]);
+
+  const onCodeClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea')) return;
+    const row = target.closest<HTMLTableRowElement>('tr.row');
+    const file = row?.closest<HTMLElement>('.diff-file')?.dataset.path;
+    const line = row ? rowNewLine(row) : null;
+    if (!file || line == null) return;
+    setEditorLine({ path: file, line });
+    if (primaryModifier(event) && props.onOpenLine) {
+      event.preventDefault();
+      setEditorError('');
+      void props.onOpenLine(file, line).catch((error: Error) => setEditorError(error.message));
+    }
+  };
 
   // ---- diff 外上下文展开:按需拉文件新侧全文并缓存,记录各 gap 已展开的行数 ----
   // 这份状态住在整栏而非各 DiffFileView:检索索引要把已展开的上下文一并算进去,
@@ -668,7 +691,7 @@ export function DiffPane(props: DiffPaneProps) {
     // 检索条是 .diff-col 的绝对定位子元素,**不能**放进滚动容器:
     // 放进去它会随内容滚开,点上一处 / 下一处时搜索条自己先跑掉
     <div className="diff-col">
-    <div className="diff pane" ref={ref} onMouseUp={onMouseUp}>
+    <div className="diff pane" ref={ref} onMouseUp={onMouseUp} onClick={onCodeClick}>
       <div className="diff-bar">
         <span className="db-stat mono" title="本次改动总量">
           <span className="a">+{totals.a}</span>
@@ -677,9 +700,11 @@ export function DiffPane(props: DiffPaneProps) {
         <span className="db-spacer" />
         {props.onViewChange && <ViewSwitch view={props.view} onChange={props.onViewChange} />}
       </div>
+      {editorError && <div className="diff-editor-error" role="alert">{editorError}<button type="button" onClick={() => setEditorError('')}>关闭</button></div>}
       {files.map((f) => (
         <DiffFileView
           key={f.path}
+          fileActions={props.renderFileActions?.(f.path, f.binary ? undefined : editorLine?.path === f.path ? editorLine.line : f.hunks[0]?.lines.find((line) => line.newLine !== null)?.newLine ?? 1)}
           file={f}
           findings={byFile.get(f.path) ?? []}
           discussions={discByFile.get(f.path) ?? []}
@@ -1026,6 +1051,7 @@ function GapExpander({
 }
 
 function DiffFileView({
+  fileActions,
   file,
   findings,
   discussions,
@@ -1053,6 +1079,7 @@ function DiffFileView({
   revealOf,
   onExpand,
 }: {
+  fileActions?: React.ReactNode;
   file: DiffFile;
   findings: Finding[];
   discussions: Discussion[];
@@ -1183,6 +1210,7 @@ function DiffFileView({
         </div>
         <div className="fh-meta">
           <CopyFilePathButton path={file.path} />
+          {fileActions}
           {findings.length > 0 && <span className="fh-fnd">⚑ {findings.length}</span>}
           {!file.binary && (
             <span className="fh-num">

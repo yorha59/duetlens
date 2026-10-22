@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
@@ -23,6 +23,7 @@ import type { PromptSaveInput } from '@shared/prompt';
 import type { ReviewManager } from '../review/review-manager';
 import type { Updater } from '../update/updater';
 import { resolvePrUrl } from '../source/source-discovery';
+import { detectEditors, openEditorFile, resolveEditorFile } from '../editor/local-editors';
 
 export interface IpcDeps {
   manager: ReviewManager;
@@ -33,6 +34,41 @@ export interface IpcDeps {
 
 /** 注册 main 侧全部 IPC handler,并把 ReviewManager 事件转发给 renderer。 */
 export function registerIpcHandlers({ manager, broadcast, updater }: IpcDeps): void {
+  ipcMain.handle(IpcChannels.editorList, async () =>
+    (await detectEditors()).map(({ id, name }) => ({ id, name })),
+  );
+  ipcMain.handle(IpcChannels.editorOpenFile, async (event, reviewId: string, file: string, choose = false, line?: number) => {
+    try {
+      const review = await manager.getReview(reviewId);
+      if (!review?.repoPath) throw new Error('请先为审核关联本地仓库');
+      if (!manager.getDiff(reviewId).some((entry) => entry.path === file)) throw new Error('文件不在本次审核改动中');
+      const absolute = await resolveEditorFile(review.repoPath, file);
+      const editors = await detectEditors();
+      if (!editors.length) throw new Error('未检测到支持的代码编辑器,请先安装 Cursor 或 VS Code');
+      let selected = editors[0];
+      if (choose) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window) throw new Error('审核窗口已关闭');
+        const picked = await new Promise<string | null>((resolve) => {
+          const menu = Menu.buildFromTemplate([
+            { label: `在 ${selected.name} 中打开`, click: () => resolve(selected.id) },
+            { label: '打开方式', submenu: editors.map((editor) => ({
+              label: editor.name, click: () => resolve(editor.id),
+            })) },
+          ]);
+          menu.popup({ window, callback: () => resolve(null) });
+        });
+        if (!picked) return { ok: true };
+        const pickedEditor = editors.find((editor) => editor.id === picked);
+        if (!pickedEditor) throw new Error('编辑器不可用');
+        selected = pickedEditor;
+      }
+      await openEditorFile(selected, absolute, line);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: (error as Error).message };
+    }
+  });
   ipcMain.handle(IpcChannels.appGetInfo, (): AppInfo => ({
     name: app.getName(),
     version: app.getVersion(),

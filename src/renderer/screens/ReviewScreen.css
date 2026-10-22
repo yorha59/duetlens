@@ -1434,6 +1434,7 @@ body.rz-dragging * {
   border-bottom: 1px solid var(--border);
   /* 中栏宽度由两侧栏拖拽决定,与窗口宽度无关,故按容器而非视口退化 */
   container-type: inline-size;
+  flex-wrap: wrap;
 }
 .file-header .fh-id {
   display: flex;
@@ -1488,13 +1489,16 @@ body.rz-dragging * {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 26px;
+  gap: 5px;
+  min-width: 88px;
   height: 26px;
-  padding: 0;
-  border: 1px solid transparent;
+  padding: 0 8px;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: transparent;
-  color: var(--text-faint);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
 }
 .fh-copy-path:hover,
@@ -1505,15 +1509,6 @@ body.rz-dragging * {
 }
 .fh-copy-path.on {
   color: var(--add);
-}
-.fh-copy-path .sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 .file-header .fh-fnd {
   display: flex;
@@ -5758,3 +5753,20 @@ body.rz-dragging * {
   font-size: 11.5px;
   line-height: 1.6;
 }
+
+/* 文件操作始终可见;窄栏把动作放到下一行,不挤掉文件名。 */
+.file-editor-action { position: relative; display: inline-flex; flex: none; }
+.file-editor-buttons { display: inline-flex; }
+.file-editor-buttons .fh-btn:first-child { border-radius: 6px 0 0 6px; }
+.file-editor-buttons .file-editor-more { border-radius: 0 6px 6px 0; margin-left: -1px; padding: 0 6px; }
+.file-editor-buttons .fh-btn:disabled { opacity: 0.5; cursor: default; }
+.file-editor-buttons .fh-btn:focus-visible { outline: 2px solid var(--agent); outline-offset: 1px; }
+.file-editor-error { position: absolute; top: calc(100% + 5px); right: 0; z-index: 10; width: 280px; padding: 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--text); box-shadow: var(--shadow); font-size: 12px; }
+.file-editor-error button { margin-left: 5px; border: 0; background: transparent; color: var(--text-dim); cursor: pointer; }
+@container (max-width: 640px) {
+  .file-header .fh-id { flex-basis: 100%; }
+  .file-header .fh-meta { width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+}
+
+.diff-editor-error { margin: 8px 12px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--card); font-size: 12px; }
+.diff-editor-error button { margin-left: 8px; border: 0; background: transparent; color: var(--agent); cursor: pointer; }

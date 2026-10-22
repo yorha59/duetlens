@@ -40,6 +40,8 @@ import type {
 export const IpcChannels = {
   appGetInfo: 'app:get-info',
   appCheckEnvironment: 'app:check-environment',
+  editorList: 'editor:list',
+  editorOpenFile: 'editor:open-file',
   reviewList: 'review:list',
   reviewListRecent: 'review:list-recent',
   reviewGet: 'review:get',
@@ -407,7 +409,14 @@ export type ReviewEvent =
   | { reviewId: string; type: 'selfcheck-skipped'; reason: 'no-findings' };
 
 /** contextBridge 暴露到 renderer 的 API 形状。 */
+export interface LocalEditor { id: string; name: string }
+export type OpenEditorResult = { ok: true } | { ok: false; message: string };
+
 export interface DuetlensApi {
+  editor: {
+    list(): Promise<LocalEditor[]>;
+    openFile(reviewId: string, file: string, choose?: boolean, line?: number): Promise<OpenEditorResult>;
+  };
   getAppInfo(): Promise<AppInfo>;
   /** 首启环境自检(codex / app-server / gh);deep=true 才做 app-server 连通深检。 */
   checkEnvironment(opts?: EnvCheckOptions): Promise<EnvironmentReport>;

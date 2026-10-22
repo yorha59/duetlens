@@ -922,6 +922,10 @@ export function installPreviewApi(): void {
   }
 
   const api: DuetlensApi = {
+    editor: {
+      list: async () => [{ id: 'cursor', name: 'Cursor' }, { id: 'xcode', name: 'Xcode' }],
+      openFile: async () => ({ ok: true }),
+    },
     getAppInfo: async () => ({
       name: 'Duetlens (preview)',
       version: APP_VERSION,

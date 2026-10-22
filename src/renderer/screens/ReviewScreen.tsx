@@ -18,6 +18,7 @@ import { useReviewStream, type ReplyStream } from '../review/useReviewStream';
 import { useReviewUiState } from '../review/useReviewUiState';
 import { FileTree } from './review/FileTree';
 import { DiffPane, type DiffView } from './review/DiffPane';
+import { OpenFileButton } from './review/OpenFileButton';
 import { DiscussionTab } from './review/DiscussionTab';
 import type { UnsentDraft } from './review/Composer';
 import { SummaryTab } from './review/SummaryTab';
@@ -1245,6 +1246,11 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
+            renderFileActions={(path, line) => <OpenFileButton reviewId={reviewId} path={path} line={line} hasLocalRepo={!!review?.repoPath} />}
+            onOpenLine={async (path, line) => {
+              const result = await window.duetlens.editor.openFile(reviewId, path, false, line);
+              if (!result.ok) throw new Error(result.message);
+            }}
             files={diff}
             findings={findings}
             discussions={discussions}
