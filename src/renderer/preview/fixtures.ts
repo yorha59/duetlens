@@ -1021,6 +1021,7 @@ export function installPreviewApi(): void {
       // 开一轮:插入 scanning 记录并回推,4s 后收轮 —— 够看清面板→扫描→收轮的整条视觉链路。
       // ?rerun=slow 模拟大 PR 的慢启动(阶段按真实顺序推进,record 停够久能看到「读 PR 评论」提示)
       rerun: async (_r, input) => {
+        if (params.get('rerun') === 'unchanged' && !input?.fullReview) throw new Error('NO_REVIEW_CHANGES:代码与上一轮相同,已跳过复审,未启动 AI。');
         const slow = params.get('rerun') === 'slow';
         if (slow) {
           const at = (stage: ReviewStartStage, ms: number) => stageAt(input?.startId, stage, ms);
@@ -1042,6 +1043,7 @@ export function installPreviewApi(): void {
           reviewId: 'demo',
           round: rounds.length + 1,
           agentSessionId: `thread-demo-${rounds.length + 1}`,
+          incremental: !input?.fullReview,
           headSha: 'bb17e4f0a993',
           status: 'scanning',
           note: input?.note ?? null,

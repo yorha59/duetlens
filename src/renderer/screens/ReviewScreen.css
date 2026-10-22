@@ -5775,3 +5775,5 @@ body.rz-dragging * {
 
 /* 代码来源入口与常驻操作保持单行,标题让出空间。 */
 .rev-topbar > .rerun-cta { flex: none; white-space: nowrap; }
+
+.incremental-review-notice { padding: 8px 16px; font-size: 12px; color: var(--agent-2); border-bottom: 1px solid var(--border); background: var(--agent-soft); }

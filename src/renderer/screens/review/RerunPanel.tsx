@@ -36,10 +36,12 @@ export function RerunPanel({
   findings: Finding[];
   rounds: ReviewRound[];
   onClose: () => void;
-  onRun: (input: { note: string; intensity: ReviewIntensity; startId: string }) => Promise<void>;
+  onRun: (input: { note: string; intensity: ReviewIntensity; startId: string; fullReview: boolean }) => Promise<void>;
 }): React.JSX.Element {
   const reviewIntensity = review?.intensity ?? 'standard';
   const [note, setNote] = useState('');
+  const [fullReview, setFullReview] = useState(false);
+  const [notice, setNotice] = useState('');
   const [intensity, setIntensity] = useState<ReviewIntensity>(reviewIntensity);
   const [running, setRunning] = useState(false);
   const [stage, setStage] = useState<ReviewStartStage>('resolve');
@@ -78,12 +80,15 @@ export function RerunPanel({
     setRunning(true);
     setStage('resolve');
     setError(null);
+    setNotice('');
     try {
-      await onRun({ note: note.trim(), intensity, startId });
+      await onRun({ note: note.trim(), intensity, startId, fullReview });
       onClose();
     } catch (e) {
       startIdRef.current = null;
-      setError((e as Error).message);
+      const message = (e as Error).message;
+      if (message.includes('NO_REVIEW_CHANGES:')) setNotice(message.split('NO_REVIEW_CHANGES:')[1]);
+      else setError(message);
       setRunning(false);
     }
   };
@@ -125,14 +130,14 @@ export function RerunPanel({
         ) : (
           <>
           <p className="rp-lede">
-            会重新拉取最新改动做<b>全量重审</b>,并开一个干净的 codex 会话 —— 上一轮的结论与你的处置由下列上下文带过去。
+            默认只审核<b>上一轮之后的增量</b>，跳过未变化代码与对应旧问题；代码无变化时不启动 AI。上一轮的结论和处置继续保留。
           </p>
 
           <ul className="rp-ctx">
             <li>
               <span className="rp-n">{open.length}</span>
               <span className="rp-l">
-                条保留中的 finding <em>逐条要求 agent 判定「已修复 / 仍存在」</em>
+                条保留中的 finding <em>{fullReview ? '逐条复核' : '只复核本轮变动片段中的问题，其余沿用原结论'}</em>
                 {submitted > 0 && <span className="rp-sub">其中 {submitted} 条已提交到 GitHub</span>}
               </span>
             </li>
@@ -159,7 +164,7 @@ export function RerunPanel({
             <li>
               <span className="rp-n rp-glyph">↻</span>
               <span className="rp-l">
-                最新 diff <em>开跑时拉取,并标出自上一轮以来变动的文件</em>
+                {fullReview ? '完整 diff' : '增量 diff'} <em>{fullReview ? '重新扫描全部改动' : '只把上一轮之后的新变化交给 agent'}</em>
               </span>
             </li>
             {isGithub && (
@@ -173,6 +178,8 @@ export function RerunPanel({
             )}
           </ul>
 
+          <label className="rp-full-review"><input type="checkbox" checked={fullReview} onChange={(event) => setFullReview(event.target.checked)} /> 全量复审（重新审核全部改动）</label>
+          {notice && <p role="status">{notice}</p>}
           <div className="rp-int">
             <div className="rp-int-top">
               <span className="rp-int-lbl">本轮强度</span>

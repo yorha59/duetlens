@@ -146,6 +146,7 @@ app.whenReady().then(async () => {
 
   const db = openDatabase(path.join(app.getPath('userData'), 'duetlens.db'));
   manager = new ReviewManager(new ReviewStore(db), undefined, {
+    snapshotRoot: path.join(app.getPath('userData'), 'review-snapshots'),
     pi: {
       extensionPath: piExtensionPath({
         packaged: app.isPackaged,

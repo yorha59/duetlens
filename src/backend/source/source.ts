@@ -4,6 +4,8 @@ import type { CommitPosition } from '@shared/source-discovery';
 /** 一次审核的目标定位(三种 source 共用)。 */
 export interface ReviewTarget {
   source: SourceKind;
+  /** 本地快照对象归档目录,仅运行时注入。 */
+  snapshotPath?: string;
   /** github-pr: PR url / owner/repo#123 / 号;local-branch: 分支名(空=当前 HEAD);gitbutler: vbranch id */
   ref: string;
   /** 本地仓库工作目录(git 操作与读文件所在);github-pr 可为空(走 gh api) */
@@ -55,6 +57,10 @@ export interface Source {
   prepare(): Promise<PreparedSource>;
   /** 本次改动的完整 unified diff */
   getDiff(): Promise<string>;
+  /** 上轮代码快照 → 当前代码的精确增量,行号对应当前完整文件。 */
+  getDiffSince?(previousHead: string): Promise<string>;
+  /** 持久化本地快照对象,供下轮与重启后做增量比较。 */
+  saveSnapshot?(directory: string): Promise<void>;
   /**
    * 按相对路径读被审文件(新侧内容)。
    * 读不到(已删除 / 不在该 ref / 越界)**必须抛**,不要回一句占位文本 ——

@@ -262,6 +262,17 @@ export class GitHubPrSource implements Source {
     ]);
   }
 
+  async getDiffSince(previousHead: string): Promise<string> {
+    if (!/^[a-f0-9]{40}$/i.test(previousHead)) throw new Error('上一轮不是远端提交,请使用关联本地仓库继续增量复审或选择全量复审');
+    if (previousHead === this.headSha) return '';
+    const endpoint = `repos/${this.nwo}/compare/${previousHead}...${this.headSha}`;
+    const metadata = JSON.parse(await run('gh', ['api', endpoint, '--jq', '{status, behind_by}'])) as { status: string; behind_by: number };
+    if (metadata.status !== 'ahead' || metadata.behind_by !== 0) {
+      throw new Error('远端历史已改写或发生来源切换,无法安全比较上一轮,请选择全量复审');
+    }
+    return run('gh', ['api', '-H', 'Accept: application/vnd.github.v3.diff', endpoint]);
+  }
+
   async getFile(path: string): Promise<string> {
     try {
       const b64 = await run('gh', [

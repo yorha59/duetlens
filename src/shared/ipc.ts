@@ -176,6 +176,8 @@ export interface CodeSyncResult {
 }
 
 export interface RerunInput {
+  /** 缺省增量审核;显式为 true 才重新全量扫描。 */
+  fullReview?: boolean;
   /** 在同一任务内更换代码来源,本轮沿用原 findings 与 reviewer 处置。 */
   workspace?: WorkspaceTarget;
   /** reviewer 对本轮的额外说明(如「重点看并发那块」),随复审指令注入 */

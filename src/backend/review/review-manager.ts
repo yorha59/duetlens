@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import { isProposalUndoBlocked, isUnscanned, REVIEW_RETENTION_MS, scanDoneStatus } from '@shared/domain';
 import type {
   AgentKind,
@@ -20,6 +22,7 @@ import type {
 } from '@shared/domain';
 import type { AgentErrorKind } from '@shared/agent-events';
 import type { PrContext } from '@shared/github-context';
+import { findingTouchesDelta, shiftedFindingLine } from '@shared/incremental-review';
 import { changedFilesBetween, parseUnifiedDiff, type DiffFile } from '@shared/diff';
 import type { AddFindingInput, BusyReview, DiffStatInput, FindingEditInput, LatestDiffResult, LiveCapacity, RecentReview, RerunInput, ReviewEvent, ReviewScopes, ReviewStartStage, ScopeState, StartScanInput, SubmitReviewInput, SubmitReviewResult } from '@shared/ipc';
 import { LIVE_SESSION_LIMIT_CODE, PI_TOOLSET_NOT_READ_ONLY_CODE, SANDBOX_NOT_APPLIED_CODE } from '@shared/ipc';
@@ -32,7 +35,7 @@ import { CodexAgent } from '../agent/codex/codex-agent';
 import { PiAgent, probePi, type PiAgentOptions as PiAgentConfig } from '../agent/pi/pi-agent';
 import type { ConversationalAgent } from '../agent/conversational-agent';
 import { loadBaseInstructions, loadReviewPrompt, saveReviewLayer } from '../prompt/review-prompt';
-import { buildRerunPrompt } from '../prompt/rerun-prompt';
+import { buildRerunPrompt, INCREMENTAL_REVIEW_RULE } from '../prompt/rerun-prompt';
 import { buildScanPrompt } from '../prompt/scan-prompt';
 import { createSource } from '../source/create-source';
 import { PrWorkspace } from '../source/pr-workspace';
@@ -103,12 +106,13 @@ function snapshotPatched(before: Finding, after: Finding): ProposalUpdateBefore 
  * 由持久化的 review 反推 source 定位。**baseRef 必须一并带上** —— 漏掉它,复审与续接会
  * 回到该 source 的默认基线,同一条 review 的第二轮起就换了一份改动面。
  */
-function targetOf(review: Review): ReviewTarget {
+function targetOf(review: Review, snapshotRoot?: string): ReviewTarget {
   if (review.source === 'github-pr' && review.localReview) {
-    return { source: 'local-worktree', ref: review.sourceRef, repoPath: review.repoPath ?? '', baseRef: review.localBaseRef ?? undefined };
+    return { source: 'local-worktree', ref: review.sourceRef, repoPath: review.repoPath ?? '', baseRef: review.localBaseRef ?? undefined, snapshotPath: snapshotRoot ? path.join(snapshotRoot, review.id) : undefined };
   }
   return {
     source: review.source,
+    snapshotPath: snapshotRoot ? path.join(snapshotRoot, review.id) : undefined,
     ref: review.sourceRef,
     baseRef: review.baseRef ?? undefined,
     headRef: review.headRef ?? undefined,
@@ -245,6 +249,8 @@ export class ReviewManager extends EventEmitter {
   private readonly submitting = new Set<string>();
   private readonly workspaceBusy = new Set<string>();
   private readonly prWorkspace = new PrWorkspace();
+  private readonly snapshotRoot?: string;
+  private readonly agentFactory?: (kind: AgentKind) => ConversationalAgent;
 
   private assertWorkspaceIdle(reviewId: string): Review {
     const review = this.store.getReview(reviewId);
@@ -290,9 +296,11 @@ export class ReviewManager extends EventEmitter {
   constructor(
     private readonly store: ReviewStore,
     private readonly codexHome?: string,
-    opts?: { maxLiveSessions?: number; submitter?: GitHubSubmitter; pi?: PiAgentConfig },
+    opts?: { agentFactory?: (kind: AgentKind) => ConversationalAgent; snapshotRoot?: string; maxLiveSessions?: number; submitter?: GitHubSubmitter; pi?: PiAgentConfig },
   ) {
     super();
+    this.snapshotRoot = opts?.snapshotRoot;
+    this.agentFactory = opts?.agentFactory;
     // 每个活跃会话 = 一个 agent 子进程 + MCP server;上限避免长时运行泄漏进程。
     this.maxLiveSessions = opts?.maxLiveSessions ?? 4;
     this.submitter = opts?.submitter ?? new GhReviewSubmitter();
@@ -309,6 +317,7 @@ export class ReviewManager extends EventEmitter {
 
   /** 按 review 落库的 agent 种类造实例。续接必须造回同一家:会话 id 只在那一家那里有意义。 */
   private createAgent(kind: AgentKind): ConversationalAgent {
+    if (this.agentFactory) return this.agentFactory(kind);
     if (kind === 'pi') {
       if (!this.pi) throw new Error('这个进程没有装配 pi,无法跑选了 pi 的审核');
       return new PiAgent(this.pi);
@@ -422,7 +431,7 @@ export class ReviewManager extends EventEmitter {
     // **headRef 反过来必须留着**:钉住某个 commit 的 review 提交时用的正是那个 commit_id,
     // GitHub 校验的也就是它自己那份 diff;清掉会拿整个 PR 的 diff 去判,放行一批实际会被拒的锚点。
     const source = createSource(
-      review.source === 'github-pr' && !review.localReview ? { ...targetOf(review), baseRef: undefined } : targetOf(review),
+      review.source === 'github-pr' && !review.localReview ? { ...targetOf(review, this.snapshotRoot), baseRef: undefined } : targetOf(review, this.snapshotRoot),
     );
     try {
       const prepared = await source.prepare();
@@ -497,7 +506,7 @@ export class ReviewManager extends EventEmitter {
     }
     const review = this.store.getReview(reviewId);
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
-    const source = createSource(targetOf(review));
+    const source = createSource(targetOf(review, this.snapshotRoot));
     try {
       const prepared = await source.prepare();
       if (review.localReview && prepared.headSha !== this.store.getRound(reviewId, review.currentRound)?.headSha) return null;
@@ -855,10 +864,12 @@ export class ReviewManager extends EventEmitter {
    * 漏拆就留下一批指着已删行的 codex 子进程与 MCP server。故连子行一起拆。
    */
   async deleteReview(reviewId: string): Promise<void> {
+    if (!this.store.getReview(reviewId)) throw new Error('审核任务不存在');
     if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
     const ids = [...this.store.listChildren(reviewId).map((c) => c.id), reviewId];
     for (const id of ids) await this.teardown(id);
     this.store.deleteReview(reviewId);
+    if (this.snapshotRoot) for (const id of ids) await rm(path.join(this.snapshotRoot, id), { recursive: true, force: true });
     this.scopeCommits.delete(reviewId);
     // 第一次 teardown 释放会话要 await,那期间来的追问读到的还是删除前的行,会照常续接上来。
     // 再拆一次收掉它:此后新来的续接第一步就查不到 review,这条路到此为止。
@@ -1068,6 +1079,7 @@ export class ReviewManager extends EventEmitter {
         intensity: target.intensity ?? 'standard',
       });
       this.store.setDiff(review.id, rawDiff);
+      if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, review.id));
       // 首轮也建轮次记录:轮次表是完整履历,复审只是往后追加,不是另一套东西。
       this.store.startRound(review.id, 1, { headSha: prepared.headSha, note: target.context });
       const pr = await this.prContext(review, 1);
@@ -1309,6 +1321,7 @@ export class ReviewManager extends EventEmitter {
         intensity,
         onStage,
         workspaceChanged: !!input.workspace,
+        incremental: !input.fullReview && review.currentRound > 0,
       });
     } finally { this.workspaceBusy.delete(reviewId); }
   }
@@ -1355,6 +1368,7 @@ export class ReviewManager extends EventEmitter {
       intensity: review.intensity,
       // 失败那次已经把最新 diff 写进快照,再比一次只会得出"无改动";变更文件沿用该轮已记的。
       priorChanged: current,
+      incremental: this.store.getRoundScanDiff(reviewId, current.round) !== null,
     });
   }
 
@@ -1371,27 +1385,22 @@ export class ReviewManager extends EventEmitter {
       /** 重试同一轮时,该轮首次开跑记下的变更文件基线 */
       priorChanged?: ReviewRound;
       workspaceChanged?: boolean;
+      incremental?: boolean;
       onStage?: (s: ReviewStartStage) => void;
     },
   ): Promise<ReviewRound> {
     const reviewId = review.id;
     const prevRound = opts.round > 1 ? this.store.getRound(reviewId, opts.round - 1) : null;
 
-    // 每轮新 thread:先彻底释放上一轮的会话、MCP 与 source,再重建。
     opts.onStage?.('resolve');
-    await this.teardown(reviewId);
-    // 重跑会按 PR 当前 head 重新 prepare,提交列表可能已经不是缓存里那份
-    this.scopeCommits.delete(reviewId);
-    // 代次在 teardown 之后取:本轮要作废的是这次拆完之后又来的释放/删除。
-    const epoch = this.teardownEpoch(reviewId);
-    // 刚腾出的位子立刻占住:下面还要 await 好几步拉取,期间被别的发起抢走的话,
-    // 轮次已经落库、却只能收成一条莫名其妙的失败。
-    const release = this.reserveCapacity();
+    let release = () => {};
+    let epoch = this.teardownEpoch(reviewId);
 
-    const source = createSource(targetOf(review));
+    const source = createSource(targetOf(review, this.snapshotRoot));
     let round: ReviewRound;
     let prepared: Awaited<ReturnType<typeof source.prepare>>;
     let rawDiff: string;
+    let scanDiff: string;
     let prompt: string | undefined;
     let baseInstructions: string;
     try {
@@ -1400,15 +1409,45 @@ export class ReviewManager extends EventEmitter {
       rawDiff = await source.getDiff();
       opts.onStage?.('record');
       const prevDiff = this.store.getRawDiff(reviewId);
-      const changedFiles = [
-        ...new Set([...(opts.priorChanged?.changedFiles ?? []), ...changedFilesBetween(prevDiff, rawDiff)]),
-      ].sort();
-      const codeChanged = Boolean(opts.priorChanged?.codeChanged) || prevDiff !== rawDiff;
+      scanDiff = rawDiff;
+      if (opts.incremental) {
+        if (prevRound && prevRound.status !== 'done') throw new Error('上一轮未完整完成,请先重试该轮或选择全量复审,避免跳过尚未审核的代码');
+        if (!prevRound?.headSha || !source.getDiffSince) throw new Error('缺少可比较的上一轮代码快照,请选择全量复审建立基线');
+        try { scanDiff = await source.getDiffSince(prevRound.headSha); }
+        catch (error) { throw new Error(`无法准备精确增量,请选择全量复审建立新基线。${(error as Error).message}`); }
+        if (!scanDiff.trim()) {
+          if (!opts.workspaceChanged) throw new Error('NO_REVIEW_CHANGES:代码与上一轮相同,已跳过复审,未启动 AI。');
+          // 来源切换但内容相同:只记录新来源和快照,无需再启动机审。
+          if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, reviewId));
+          await this.teardown(reviewId);
+          this.store.recordWorkspaceRound(review, opts.round, { headSha: prepared.headSha, note: '代码来源已切换;内容无变化,跳过机审。', changedFiles: [], codeChanged: false }, rawDiff);
+          this.store.setRoundScanDiff(reviewId, opts.round, '');
+          this.store.finishRound(reviewId, opts.round, 'done');
+          this.store.setReviewStatus(reviewId, scanDoneStatus(review.source));
+          const done = this.store.getRound(reviewId, opts.round)!;
+          this.forward({ reviewId, type: 'round', payload: done });
+          this.forward({ reviewId, type: 'review', payload: this.store.getReview(reviewId)! });
+          await source.dispose();
+          return done;
+        }
+      }
+      const changedFiles = opts.incremental
+        ? parseUnifiedDiff(scanDiff).map((file) => file.path)
+        : [...new Set([...(opts.priorChanged?.changedFiles ?? []), ...changedFilesBetween(prevDiff, rawDiff)])].sort();
+      const codeChanged = opts.incremental ? !!scanDiff.trim() : Boolean(opts.priorChanged?.codeChanged) || prevDiff !== rawDiff;
+      if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, reviewId));
+      await this.teardown(reviewId);
+      this.scopeCommits.delete(reviewId);
+      epoch = this.teardownEpoch(reviewId);
+      release = this.reserveCapacity();
       const pr = await this.prContext(review, opts.round);
 
       const findings = this.store.listFindings(reviewId);
-      const openFindings = findings.filter((f) => f.triage !== 'dismiss');
-      const dismissedFindings = findings.filter((f) => f.triage === 'dismiss');
+      const deltaFiles = opts.incremental ? parseUnifiedDiff(scanDiff) : [];
+      const openFindings = findings.filter((f) => f.triage !== 'dismiss' && (!opts.incremental || findingTouchesDelta(f, deltaFiles)));
+      const skipped = findings.filter((f) => opts.incremental && !findingTouchesDelta(f, deltaFiles));
+      const skippedFindings = skipped.filter((f) => f.triage !== 'dismiss').length;
+      const dismissedFindings = findings.filter((f) => f.triage === 'dismiss' && (!opts.incremental || changedFiles.includes(f.file)));
       const messagesByDiscussion: Record<string, Message[]> = {};
       for (const f of openFindings) {
         const msgs = this.store.listMessages(f.discussionId);
@@ -1420,6 +1459,7 @@ export class ReviewManager extends EventEmitter {
         intensity: opts.intensity,
         canSearch: !!source.searchCode,
       });
+      if (opts.incremental) baseInstructions += `\n${INCREMENTAL_REVIEW_RULE}`;
       const roundInput = { headSha: prepared.headSha, note: opts.note, changedFiles, codeChanged };
       if (opts.workspaceChanged) {
         round = this.store.recordWorkspaceRound(review, opts.round, roundInput, rawDiff);
@@ -1427,12 +1467,20 @@ export class ReviewManager extends EventEmitter {
         this.store.setDiff(reviewId, rawDiff);
         round = this.store.startRound(reviewId, opts.round, roundInput);
       }
+      for (const finding of skipped) {
+        const line = shiftedFindingLine(finding, deltaFiles);
+        if (line !== finding.line && !finding.anchorDropped) this.setFindingAnchor(reviewId, finding.id, line);
+      }
+      this.store.setRoundScanDiff(reviewId, round.round, opts.incremental ? scanDiff : null);
+      round = this.store.getRound(reviewId, round.round)!;
       prompt =
         round.round === 1
           ? // 首轮重试:那轮的 note 就是入口填的附加上下文
             buildScanPrompt({ pr, note: opts.note, position: prepared.position })
           : buildRerunPrompt({
               round: round.round,
+              incremental: opts.incremental,
+              skippedFindings,
               prevRound,
               headSha: prepared.headSha ?? null,
               changedFiles,
@@ -1456,7 +1504,7 @@ export class ReviewManager extends EventEmitter {
       this.launch(
         { ...review, currentRound: round.round, intensity },
         prepared.cwd,
-        this.buildProviders(review.id, source, () => rawDiff),
+        this.buildProviders(review.id, source, () => scanDiff),
         () => source.dispose(),
         baseInstructions,
         prompt,
@@ -1572,17 +1620,19 @@ export class ReviewManager extends EventEmitter {
     if (!review.agentSessionId) throw new Error(`review 没有 agent 会话,无法续接: ${reviewId}`);
 
     const epoch = this.teardownEpoch(reviewId);
-    const source = createSource(targetOf(review));
+    const source = createSource(targetOf(review, this.snapshotRoot));
     const prepared = await source.prepare();
     if (review.localReview && prepared.headSha !== this.store.getRound(reviewId, review.currentRound)?.headSha) {
       await source.dispose();
       throw new Error('本地代码已不同于本轮审核快照,请先刷新本地并复审后继续追问');
     }
-    const baseInstructions = await loadBaseInstructions({
+    const scanDiff = this.store.getRoundScanDiff(reviewId, review.currentRound);
+    let baseInstructions = await loadBaseInstructions({
       cwd: prepared.cwd,
       intensity: review.intensity,
       canSearch: !!source.searchCode,
     });
+    if (scanDiff !== null) baseInstructions += `\n${INCREMENTAL_REVIEW_RULE}`;
     let session: ReviewSession;
     try {
       session = this.createSession(reviewId, () => source.dispose(), epoch);
@@ -1590,7 +1640,7 @@ export class ReviewManager extends EventEmitter {
       await source.dispose(); // 建不出会话(如满载/已被释放)时 source 还没交给任何清理钩子,自己收
       throw e;
     }
-    const providers = this.buildProviders(reviewId, source, () => source.getDiff());
+    const providers = this.buildProviders(reviewId, source, () => scanDiff ?? source.getDiff());
     this.providers.set(reviewId, providers);
     try {
       await session.resume({

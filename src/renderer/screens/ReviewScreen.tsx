@@ -703,10 +703,10 @@ function ReviewPane({
   // 重跑:立刻返回新轮次记录,扫描后台跑;失败(如上一轮仍在扫描)由面板就地展示。
   // startId 只为把启动阶段事件回关到发起它的那个面板。
   const onRerun = useCallback(
-    async ({ note, intensity, startId }: { note: string; intensity: ReviewIntensity; startId: string }) => {
+    async ({ note, intensity, startId, fullReview }: { note: string; intensity: ReviewIntensity; startId: string; fullReview: boolean }) => {
       if (!reviewId) return;
       try {
-        await window.duetlens.review.rerun(reviewId, { note: note || undefined, intensity, startId });
+        await window.duetlens.review.rerun(reviewId, { note: note || undefined, intensity, startId, fullReview });
       } catch (e) {
         const message = (e as Error).message ?? String(e);
         // 满载时名单先备好,但仍把错误抛回面板:面板正盖在上面、由它就地说明原因,
@@ -1261,6 +1261,7 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
+            notice={rounds.at(-1)?.incremental ? `本轮增量复审 · ${rounds.at(-1)?.changedFiles.length ?? 0} 个变化文件；未变化的代码和问题沿用原结论。` : undefined}
             renderFileActions={(path, line) => <OpenFileButton reviewId={reviewId} path={path} line={line} hasLocalRepo={!!review?.repoPath} />}
             onOpenLine={async (path, line) => {
               const result = await window.duetlens.editor.openFile(reviewId, path, false, line);

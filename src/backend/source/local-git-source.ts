@@ -27,11 +27,16 @@ export class LocalGitSource implements Source {
     this.base = this.target.baseRef ?? (await detectBaseRef(repo));
     const subject = (await run('git', ['-C', repo, 'log', '-1', '--format=%s', this.head])).trim();
     const headSha = (await run('git', ['-C', repo, 'rev-parse', this.head])).trim();
+    this.head = headSha; // 本轮所有读取固定到同一提交,不随用户切换或推进分支而漂移。
     return { title: `${this.head} · ${subject}`, cwd: repo, headSha };
   }
 
   async getDiff(): Promise<string> {
     return run('git', ['-C', this.target.repoPath, 'diff', `${this.base}...${this.head}`]);
+  }
+
+  getDiffSince(previousHead: string): Promise<string> {
+    return run('git', ['-C', this.target.repoPath, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', previousHead, this.head, '--']);
   }
 
   async getFile(path: string): Promise<string> {

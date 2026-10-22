@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
-import { lstat, mkdtemp, readFile, readlink, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdtemp, readFile, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { resolveTool } from '../config/tool-paths';
 import { run } from './exec';
+import { archiveSnapshotObjects } from './snapshot-archive';
 import { gitGrep } from './git-grep';
 import type { CodeSearchInput, PreparedSource, ReviewTarget, Source } from './source';
 
@@ -15,6 +16,7 @@ export class LocalWorktreeSource implements Source {
   private snapshot = '';
   private tree = '';
   private base = '';
+  private originalObjects = '';
 
   constructor(private readonly target: ReviewTarget) {}
 
@@ -29,7 +31,13 @@ export class LocalWorktreeSource implements Source {
       const format = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--show-object-format'])).trim();
       await this.git(['init', '--quiet', `--object-format=${format}`]);
       const objects = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--path-format=absolute', '--git-path', 'objects'])).trim();
-      await writeFile(path.join(this.snapshot, '.git/objects/info/alternates'), `${objects}\n`);
+      this.originalObjects = objects;
+      const alternates = [objects];
+      if (this.target.snapshotPath) {
+        const archivedObjects = path.join(this.target.snapshotPath, 'objects');
+        try { await access(archivedObjects); alternates.push(archivedObjects); } catch { /* 首轮还没有归档。 */ }
+      }
+      await writeFile(path.join(this.snapshot, '.git/objects/info/alternates'), alternates.join('\n') + '\n');
       const shallow = (await run('git', ['--no-optional-locks', '-C', repo, 'rev-parse', '--path-format=absolute', '--git-path', 'shallow'])).trim();
       try { await writeFile(path.join(this.snapshot, '.git/shallow'), await readFile(shallow)); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
@@ -95,6 +103,14 @@ export class LocalWorktreeSource implements Source {
 
   async getDiff(): Promise<string> {
     return this.git(['diff', '--no-ext-diff', '--no-textconv', '--no-renames', this.base, this.tree, '--']);
+  }
+
+  getDiffSince(previousHead: string): Promise<string> {
+    return this.git(['diff', '--no-ext-diff', '--no-textconv', '--no-renames', previousHead, this.tree, '--']);
+  }
+
+  saveSnapshot(directory: string): Promise<void> {
+    return archiveSnapshotObjects(path.join(this.snapshot, '.git'), directory, this.originalObjects);
   }
 
   async getFile(file: string): Promise<string> {

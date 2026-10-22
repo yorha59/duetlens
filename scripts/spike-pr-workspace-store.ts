@@ -1,7 +1,7 @@
 /** 工作区切换迁移与事务验证;不起 agent,不访问远端。 */
 import { strict as assert } from 'node:assert';
 import { openDatabase } from '../src/backend/db/database';
-import { migrate, SCHEMA_VERSION } from '../src/backend/db/schema';
+import { migrate } from '../src/backend/db/schema';
 import { ReviewStore } from '../src/backend/db/review-store';
 import { ReviewManager } from '../src/backend/review/review-manager';
 
@@ -14,8 +14,8 @@ async function main() {
   store.addMessage(finding.discussionId, 'user', 'existing discussion');
   store.setDiff(review.id, 'old remote diff');
   // 模拟旧版库,新增列只能追加迁移,存量 PR 默认仍用远端。
-  db.exec('ALTER TABLE reviews DROP COLUMN local_review; ALTER TABLE reviews DROP COLUMN local_base_ref;');
-  db.pragma(`user_version = ${SCHEMA_VERSION - 1}`);
+  db.exec('ALTER TABLE reviews DROP COLUMN local_review; ALTER TABLE reviews DROP COLUMN local_base_ref; ALTER TABLE review_rounds DROP COLUMN scan_diff;');
+  db.pragma(`user_version = ${25}`);
   migrate(db);
   assert.equal(store.getReview(review.id)!.localReview, false);
   store.setReviewWorkspace(review.id, '/linked', false, null);

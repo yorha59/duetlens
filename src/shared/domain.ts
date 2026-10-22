@@ -371,6 +371,8 @@ export interface Review {
  * 避免新旧 diff 的行号在同一上下文里互相污染。
  */
 export interface ReviewRound {
+  /** 本轮机审只接收上一轮 → 当前快照的增量。 */
+  incremental?: boolean;
   reviewId: string;
   round: number;
   /** 该轮的 codex 会话 id */

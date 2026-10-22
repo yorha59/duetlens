@@ -12,6 +12,7 @@ export function WorkspacePanel({ review, onClose }: { review: Review; onClose: (
   const [notice, setNotice] = useState('');
   const [plan, setPlan] = useState<CodeSyncPlan | null>(null);
   const [message, setMessage] = useState('');
+  const [fullReview, setFullReview] = useState(false);
   const [stage, setStage] = useState<ReviewStartStage>('resolve');
   const startId = useRef<string | null>(null);
   useEffect(() => window.duetlens.review.onStartProgress((progress) => {
@@ -23,7 +24,7 @@ export function WorkspacePanel({ review, onClose }: { review: Review; onClose: (
     setError('');
     setNotice('');
     try { await action(); }
-    catch (error) { setError((error as Error).message); setPlan(null); }
+    catch (error) { const message = (error as Error).message; if (message.includes('NO_REVIEW_CHANGES:')) setNotice(message.split('NO_REVIEW_CHANGES:')[1]); else setError(message); setPlan(null); }
     finally { setBusy(''); startId.current = null; }
   };
   const switchMode = (mode: 'local' | 'remote') => perform('切换并启动复审…', async () => {
@@ -31,6 +32,7 @@ export function WorkspacePanel({ review, onClose }: { review: Review; onClose: (
     setStage('resolve');
     await window.duetlens.review.rerun(review.id, {
       workspace: { mode, repoPath: directory },
+      fullReview,
       startId: startId.current,
       note: mode === 'local' ? '本轮审核关联仓库的当前本地代码,包含分支提交与未提交改动。' : '本轮切回原远端 PR 的最新代码复审。',
     });
@@ -44,7 +46,7 @@ export function WorkspacePanel({ review, onClose }: { review: Review; onClose: (
         }}>
         <header className="rp-head"><h2>本地仓库与远端 PR</h2><button type="button" disabled={!!busy} onClick={onClose} aria-label="关闭本地仓库面板">×</button></header>
         <p>当前审核来源：<b>{review.localReview ? '本地代码' : '远端 PR'}</b> · {review.sourceRef}</p>
-        <p>切换会在当前任务中发起新一轮审核，保留已有 findings、讨论和处置。本地改动面包含 PR 分支已有提交及未提交改动。</p>
+        <p>默认只审相对上一轮有变化的地方，未变化的代码和旧问题沿用原结论；完整改动仍可在左侧查看。</p>
         <label className="workspace-directory">本地 Git 仓库
           <span><input aria-label="关联的本地仓库路径" value={directory} disabled={!!busy || !!review.localReview} onChange={(event) => { setDirectory(event.target.value); setPlan(null); }} placeholder="选择本地代码目录" />
             <button type="button" disabled={!!busy || !!review.localReview} onClick={() => void perform('选择目录…', async () => {
@@ -60,6 +62,7 @@ export function WorkspacePanel({ review, onClose }: { review: Review; onClose: (
           <button type="button" disabled={!!busy || !directory.trim()} onClick={() => void switchMode('local')}>{review.localReview ? '刷新本地并复审' : '切到本地并复审'}</button>
           <button type="button" disabled={!!busy || !review.localReview} onClick={() => void switchMode('remote')}>切回远端并复审</button>
         </div>
+        <label><input type="checkbox" checked={fullReview} disabled={!!busy} onChange={(event) => setFullReview(event.target.checked)} /> 全量复审（可选）</label>
         <hr />
         <h3>同步本地代码到原 PR</h3>
         <p>提交文件清单中的全部暂存、未暂存及新增文件，并将本地提交推送到原 PR 的来源分支。</p>

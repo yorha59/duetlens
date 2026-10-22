@@ -160,6 +160,7 @@ function EditorFileActions({ file, store, render }: {
 }
 
 export interface DiffPaneProps {
+  notice?: string;
   renderFileActions?: (path: string, line?: number) => React.ReactNode;
   onOpenLine?: (path: string, line: number) => Promise<void>;
   files: DiffFile[];
@@ -713,6 +714,7 @@ export function DiffPane(props: DiffPaneProps) {
         <span className="db-spacer" />
         {props.onViewChange && <ViewSwitch view={props.view} onChange={props.onViewChange} />}
       </div>
+      {props.notice && <div className="incremental-review-notice" role="status">{props.notice}</div>}
       {editorError && <div className="diff-editor-error" role="alert">{editorError}<button type="button" onClick={() => setEditorError('')}>关闭</button></div>}
       {files.map((f) => (
         <DiffFileView

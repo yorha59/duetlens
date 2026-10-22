@@ -323,9 +323,14 @@ ALTER TABLE reviews ADD COLUMN local_review INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE reviews ADD COLUMN local_base_ref TEXT;
 `;
 
+// agent 的增量 diff 与界面完整 diff 分开保存,重试/续接不得偷偷退回全量。
+const V27 = `
+ALTER TABLE review_rounds ADD COLUMN scan_diff TEXT;
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25, V26,
+  V21, V22, V23, V24, V25, V26, V27,
 ];
 
 export function migrate(db: Database): void {

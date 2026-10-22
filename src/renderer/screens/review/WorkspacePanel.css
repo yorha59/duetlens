@@ -17,3 +17,5 @@
 .workspace-panel .workspace-notice { color: var(--green); }
 
 .workspace-panel .submit-cta { background: var(--accent-solid); color: var(--on-solid); border: 0; border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+
+.workspace-panel input[type="checkbox"] { width: auto; margin-right: 6px; }

@@ -68,6 +68,7 @@ interface ReviewRow {
 }
 
 interface RoundRow {
+  scan_diff?: string | null;
   review_id: string;
   round: number;
   agent_session_id: string | null;
@@ -181,6 +182,7 @@ function toReview(r: ReviewRow): Review {
 
 function toRound(r: RoundRow): ReviewRound {
   return {
+    incremental: r.scan_diff != null,
     reviewId: r.review_id,
     round: r.round,
     agentSessionId: r.agent_session_id,
@@ -610,6 +612,15 @@ export class ReviewStore {
    * 开一轮。**同一轮号可重开** —— 失败的那一轮重试时沿用原轮号覆盖本行,否则「第 N 轮」
    * 会退化成重试次数。重开即把上次的失败痕迹与统计一并清零。
    */
+  setRoundScanDiff(reviewId: string, round: number, diff: string | null): void {
+    this.db.prepare('UPDATE review_rounds SET scan_diff = ? WHERE review_id = ? AND round = ?').run(diff, reviewId, round);
+  }
+
+  getRoundScanDiff(reviewId: string, round: number): string | null {
+    const row = this.db.prepare('SELECT scan_diff FROM review_rounds WHERE review_id = ? AND round = ?').get(reviewId, round) as { scan_diff: string | null } | undefined;
+    return row?.scan_diff ?? null;
+  }
+
   recordWorkspaceRound(
     review: Pick<Review, 'id' | 'repoPath' | 'localReview' | 'localBaseRef'>,
     round: number,

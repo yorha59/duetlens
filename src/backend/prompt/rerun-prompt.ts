@@ -27,7 +27,11 @@ const ANCHOR_WINDOW = 12;
 /** 小节序号:哪几节存在取决于本轮有没有对应条目,故序号是数出来的,不写死。 */
 const SECTION_NUM = ['一', '二', '三', '四'];
 
+export const INCREMENTAL_REVIEW_RULE = '本轮是增量复审:get_diff 只包含上一轮快照到当前代码的新变化。只审这些新增、修改、删除及直接影响,禁止重新通读未变化文件或搜索此前遗漏的问题。必要时可读取未变化的调用方/依赖来确认本轮改动的影响,不得借此扩大为全库扫描。未纳入本轮的旧 finding 保留原结论,不要伪造本轮已复核。';
+
 export interface RerunPromptInput {
+  incremental?: boolean;
+  skippedFindings?: number;
   /** 本轮轮次号(>= 2) */
   round: number;
   /** 上一轮的元信息;用于时间窗与 head 对比 */
@@ -190,6 +194,10 @@ export function buildRerunPrompt(input: RerunPromptInput): string {
   };
 
   out.push(`这是第 ${round} 轮复审(上一轮是第 ${round - 1} 轮)。`);
+  if (input.incremental) {
+    out.push(INCREMENTAL_REVIEW_RULE);
+    out.push(`本轮跳过 ${input.skippedFindings ?? 0} 条位于未变化代码的既有 finding,沿用原结论,不调用 resolve_finding。`);
+  }
   if (codeChanged) {
     // vbranch 的改动还在工作区、没有稳定 commit,两端都是空 —— 与其写「head (未知) → (未知)」
     // 这种什么也没说的话,不如整句省掉 head:变化本身已由下面的变更文件与 diff 表达。
@@ -198,7 +206,7 @@ export function buildRerunPrompt(input: RerunPromptInput): string {
       hasSha ? `代码已更新:head ${sha8(prevRound?.headSha)} → ${sha8(headSha)}。` : '代码已更新。',
     );
     if (changedFiles.length) {
-      out.push(`自上一轮以来发生改动的文件(复审重点,但不要只看这些):`);
+      out.push(input.incremental ? '本轮增量涉及的文件(只审核增量及其直接影响):' : '自上一轮以来发生改动的文件(复审重点,但不要只看这些):');
       out.push(changedFiles.map((f) => `- ${f}`).join('\n'));
     }
   } else {
@@ -283,13 +291,14 @@ export function buildRerunPrompt(input: RerunPromptInput): string {
     steps.push(`对上面第一节的 ${openFindings.length} 条 finding 逐条调用 \`resolve_finding\` 表态。`);
   }
   steps.push(
-    '重新审核最新改动,只对**此前没有报告过的新问题**调用 `report_finding`;' +
+    (input.incremental ? '只审核 get_diff 返回的本轮增量及直接影响,只对**此前没有报告过的新问题**调用 `report_finding`;' : '重新审核最新改动,只对**此前没有报告过的新问题**调用 `report_finding`;') +
       '已在上面出现过的条目一律不要再 report_finding —— ' +
       '唯一例外是已结案的问题在最新代码里回归了,那算新问题。',
   );
   steps.push(
     '审完调用一次 `write_summary` 重写总结(整份取代上一轮那份):' +
-      '本轮修复了多少、仍存在多少、新发现多少,以及现在还有哪些文件需要人工重点复核。',
+      '本轮修复了多少、仍存在多少、新发现多少,以及现在还有哪些文件需要人工重点复核。' +
+      (input.incremental ? '另列本轮跳过、沿用往轮结论的数量,不能把它们算成已复核。' : ''),
   );
   out.push(steps.map((s, i) => `${i + 1}. ${s}`).join('\n'));
 
