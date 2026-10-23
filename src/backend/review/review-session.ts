@@ -589,7 +589,7 @@ export class ReviewSession {
       throw new Error(`discussion 不属于本次审核: ${discussionId}`);
 
     // 历史要在落库新消息之前取,否则本次追问会被重复叙述一遍
-    const history = this.store.listMessages(discussionId);
+    const history = this.store.listMessages(discussionId).filter(message => message.kind !== 'note');
     const userMsg = this.store.addMessage(discussionId, 'user', text);
     this.emit('message', userMsg);
 

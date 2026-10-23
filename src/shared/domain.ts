@@ -570,7 +570,11 @@ export function findingAnchorText(f: Finding): string {
   return f.line > 0 ? `${f.file}:${f.line}${f.side === 'old' ? '（删除前）' : ''}` : f.file;
 }
 
+/** 旧版本没有记录用户留言用途,保留 legacy 供用户明确归类。 */
+export type MessageKind = 'note' | 'chat' | 'legacy';
+export const messageKind = (message: Message): MessageKind => message.role === 'agent' ? 'chat' : message.kind ?? 'legacy';
 export interface Message {
+  kind?: MessageKind;
   id: string;
   discussionId: string;
   role: MessageRole;

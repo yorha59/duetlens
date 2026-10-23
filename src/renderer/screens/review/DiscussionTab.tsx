@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { messageKind } from '@shared/domain';
 import type { Discussion, Finding, FindingProposal, Message } from '@shared/domain';
 import { liveReplyOf, type ReplyStream } from '../../review/useReviewStream';
 import { Composer, type UnsentDraft } from './Composer';
@@ -26,7 +27,7 @@ function UserGlyph() {
 }
 
 export interface DiscussionTabProps {
-  composerFocus?: { id: string; nonce: number } | null;
+  composerFocus?: { id: string; nonce: number; mode?: 'note' | 'chat' } | null;
   discussions: Discussion[];
   findings: Finding[];
   messages: Record<string, Message[]>;
@@ -54,7 +55,7 @@ export interface DiscussionTabProps {
   /** 把当前用户 discussion 提升为 finding */
   onPromote: (discussionId: string) => void;
   /** 清空当前 discussion 的往来消息(finding 卡保留),重开讨论 */
-  onClearMessages: (discussionId: string) => void;
+  onClearMessages: (discussionId: string, kind: 'note' | 'chat') => void;
   /** agent 在讨论里提出的回写提案(全 review 范围,按 discussionId 筛) */
   proposals: FindingProposal[];
   onApplyProposal: (proposalId: string) => Promise<unknown>;
@@ -105,6 +106,10 @@ function NewGlobalButton({ onClick }: { onClick: () => Promise<unknown> }) {
 
 export function DiscussionTab(props: DiscussionTabProps) {
   const { discussions, findings, messages, activeId, awaitingReply, scanning, ensureMessages } = props;
+  const [pane, setPane] = useState<'note' | 'chat' | 'legacy'>(props.composerFocus?.mode ?? 'note');
+  useEffect(() => {
+    if (props.composerFocus?.id === activeId) setPane(props.composerFocus.mode ?? 'chat');
+  }, [props.composerFocus, activeId]);
 
   const findingByDisc = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -125,10 +130,10 @@ export function DiscussionTab(props: DiscussionTabProps) {
   }, [activeId, ensureMessages]);
 
   const activeMsgCount = activeId ? (messages[activeId]?.length ?? 0) : 0;
-  const activeAwaiting = !!activeId && awaitingReply.has(activeId);
-  const activeStreams = activeId ? props.streams[activeId] ?? EMPTY_STREAMS : EMPTY_STREAMS;
+  const activeAwaiting = pane === 'chat' && !!activeId && awaitingReply.has(activeId);
+  const activeStreams = pane === 'chat' && activeId ? props.streams[activeId] ?? EMPTY_STREAMS : EMPTY_STREAMS;
   const liveStream = liveReplyOf(activeStreams);
-  const activeFailure = activeId ? props.replyFailure[activeId] ?? null : null;
+  const activeFailure = pane === 'chat' && activeId ? props.replyFailure[activeId] ?? null : null;
 
   // 吸底:流式回复每几十毫秒长一截,无条件回底会把正在往回读的人一直往下拽。
   // 只要用户还停在底部就跟着走,一旦上滚就撒手,并给一枚回吸按钮。
@@ -220,14 +225,14 @@ export function DiscussionTab(props: DiscussionTabProps) {
    */
   const timeline = useMemo(() => {
     const items = [
-      ...activeMsgs.map((m) => ({ at: m.createdAt, msg: m, cut: null as ReplyStream | null })),
+      ...activeMsgs.filter(message => messageKind(message) === pane).map((m) => ({ at: m.createdAt, msg: m, cut: null as ReplyStream | null })),
       ...activeStreams
         .filter((s) => s.interrupted)
         .map((s) => ({ at: s.startedAt, msg: null as Message | null, cut: s })),
     ];
     items.sort((a, b) => a.at - b.at);
     return items;
-  }, [activeMsgs, activeStreams]);
+  }, [activeMsgs, activeStreams, pane]);
   const anchorLabel = active?.file
     ? `${basename(active.file)}:${active.line ?? ''}${active.lineEnd ? `–${active.lineEnd}` : ''}${active.side === 'old' ? '（删除前）' : ''}`
     : null;
@@ -261,6 +266,14 @@ export function DiscussionTab(props: DiscussionTabProps) {
         </div>
       )}
 
+      <div className="discussion-kind-tabs" role="tablist" aria-label="批注与对话">
+        {(['note', 'chat', 'legacy'] as const).map(kind => {
+          const count = activeMsgs.filter(message => messageKind(message) === kind).length;
+          if (kind === 'legacy' && !count && pane !== 'legacy') return null;
+          return <button key={kind} type="button" role="tab" aria-selected={pane === kind} data-kind={kind} onClick={() => setPane(kind)}>{kind === 'note' ? '批注' : kind === 'chat' ? '对话' : '旧留言'}{count ? ` ${count}` : ''}</button>;
+        })}
+      </div>
+      {pane === 'legacy' && <p className="legacy-message-hint">旧版本未区分批注与提问,请选择每条留言的用途。归类不会调用 agent。</p>}
       {active ? (
         <>
           {anchorLabel && (
@@ -289,7 +302,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
           )}
 
           {/* finding 必须挂行锚点(提交时要落成 inline 评论),故无锚点的讨论不给「转为 finding」 */}
-          {active.kind === 'user' && !rootFinding && active.file && (
+          {pane === 'note' && active.kind === 'user' && !rootFinding && active.file && activeMsgs.some(message => messageKind(message) === 'note') && (
             <div className="disc-actions">
               <button className="btn promote" onClick={() => props.onPromote(active.id)}>
                 ⬆ 转为 finding
@@ -298,9 +311,9 @@ export function DiscussionTab(props: DiscussionTabProps) {
             </div>
           )}
 
-          {activeMsgs.length > 0 && (
+          {pane !== 'legacy' && activeMsgs.some(message => messageKind(message) === pane) && (
             <div className="thread-tools">
-              <ClearButton key={active.id} onConfirm={() => props.onClearMessages(active.id)} />
+              <ClearButton key={`${active.id}:${pane}`} label={pane === 'note' ? '批注' : '对话'} onConfirm={() => props.onClearMessages(active.id, pane)} />
             </div>
           )}
 
@@ -319,9 +332,12 @@ export function DiscussionTab(props: DiscussionTabProps) {
                 <MessageBubble
                   key={it.msg.id}
                   role={it.msg.role}
-                  name={it.msg.role === 'agent' ? 'agent' : 'reviewer'}
+                  name={it.msg.role === 'agent' ? 'agent' : pane === 'note' ? 'reviewer · 批注' : pane === 'chat' ? '你 · 提问' : '旧留言 · 未分类'}
                   text={it.msg.text}
-                  onEdit={it.msg.role === 'user' && !it.msg.id.startsWith('pending-') ? async (text, expected) => window.duetlens.review.editMessage(active.reviewId, it.msg!.id, text, expected) : undefined}
+                  onClassify={it.msg.role === 'user' && !it.msg.id.startsWith('pending-') ? async kind => { await window.duetlens.review.classifyMessage(active.reviewId, it.msg!.id, kind, it.msg!.text); } : undefined}
+                  messageKind={messageKind(it.msg)}
+                  onDelete={messageKind(it.msg) === 'note' && it.msg.role === 'user' && !it.msg.id.startsWith('pending-') ? async (expected) => window.duetlens.review.deleteMessage(active.reviewId, it.msg!.id, expected) : undefined}
+                  onEdit={messageKind(it.msg) === 'note' && it.msg.role === 'user' && !it.msg.id.startsWith('pending-') ? async (text, expected) => window.duetlens.review.editMessage(active.reviewId, it.msg!.id, text, expected) : undefined}
                   proposals={proposalsByMessage.get(it.msg.id)}
                   findingOf={findingOf}
                   onApplyProposal={props.onApplyProposal}
@@ -344,7 +360,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
                 挂不上就不渲染的话,一张待确认卡片会凭空消失,而它是唯一的确认入口。
                 产生它的那一问还在跑时它归在途气泡:提案先于回复文本产生,是**这一条**回复的
                 一部分,单摆在外面会排在解释它的那句话上面。 */}
-            {proposalsByStream.orphan.length > 0 && (
+            {pane === 'chat' && proposalsByStream.orphan.length > 0 && (
               <div className="msg">
                 <span className="av agent">◆</span>
                 <div className="body">
@@ -406,23 +422,26 @@ export function DiscussionTab(props: DiscussionTabProps) {
       )}
 
       {/* 空态不禁用:直接开打就是一条无锚点的全局讨论(见 ReviewScreen.onComposerSend) */}
+      <div hidden={pane === 'legacy'}>
       <Composer
+        mode={pane === 'chat' ? 'chat' : 'note'}
         focusNonce={active && props.composerFocus?.id === active.id ? props.composerFocus.nonce : undefined}
         disabled={false}
-        placeholder={active ? '就这条讨论继续提问或添加批注…' : '记录关于本次改动的批注…'}
-        scope="保存批注不会调用模型；仅点击「询问 agent」时启动审核 agent"
+        placeholder={pane === 'chat' ? '就这条问题询问 agent…' : '记录批注,不会调用 agent…'}
+        scope={pane === 'chat' ? '发送后调用审核 agent,回复仅显示在对话中' : '批注独立保存,支持编辑与删除,不会调用 agent'}
         onSend={props.onSend}
-        unsent={props.unsent}
+        unsent={props.unsent.filter(draft => (draft.mode ?? 'note') === pane)}
         targetNote={targetNote}
         onRestore={props.onRestoreUnsent}
         onDraftChange={props.onComposerDraftChange}
       />
+      </div>
     </div>
   );
 }
 
 /** 清空讨论:两步确认,避免误清;3s 未确认自动复位。挂 key={discussionId} 切换即重置。 */
-function ClearButton({ onConfirm }: { onConfirm: () => void }) {
+function ClearButton({ onConfirm, label }: { onConfirm: () => void; label: string }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     if (!confirming) return;
@@ -437,15 +456,15 @@ function ClearButton({ onConfirm }: { onConfirm: () => void }) {
         onConfirm();
       }}
     >
-      确认清空?
+      确认清空{label}?
     </button>
   ) : (
     <button
       className="thr-clear"
-      title="清空本讨论的往来消息,重新开始(finding 保留)"
+      title={`只清空当前${label},保留其他内容和 finding`}
       onClick={() => setConfirming(true)}
     >
-      ↻ 清空讨论
+      ↻ 清空{label}
     </button>
   );
 }
@@ -461,7 +480,13 @@ function MessageBubble({
   onSkipProposal,
   onUndoProposal,
   onEdit,
+  onDelete,
+  onClassify,
+  messageKind: kind,
 }: {
+  messageKind?: 'note' | 'chat' | 'legacy';
+  onClassify?: (kind: 'note' | 'chat') => Promise<void>;
+  onDelete?: (expectedText: string) => Promise<void>;
   onEdit?: (text: string, expectedText: string) => Promise<unknown>;
   role: 'agent' | 'user';
   name: string;
@@ -495,14 +520,16 @@ function MessageBubble({
           {meta && <span className="t mono">{meta}</span>}
           {role === 'agent' && text.trim() && <CopyButton text={text} />}
           {onEdit && !editing && <button className="remark-edit-trigger" type="button" onClick={() => { setDraft(text); setOriginal(text); setError(''); setEditing(true); }}>编辑</button>}
+          {onDelete && !editing && <DeleteRemarkButton text={text} onDelete={onDelete} />}
         </div>
         <div className={`bubble${role === 'agent' ? ' agent' : ''}`}>
           {editing ? <div className="remark-editor">
             <textarea autoFocus aria-label="编辑批注" value={draft} disabled={saving} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); if (!saving) setEditing(false); } if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); } }} />
             {error && <p role="alert">{error}</p>}
-            <div><span>只修改批注,不调用 agent</span><button type="button" disabled={saving} onClick={() => setEditing(false)}>取消</button><button type="button" disabled={saving || !draft.trim()} onClick={() => void save()}>{saving ? '保存中…' : '保存修改'}</button></div>
+            <div><span>只修改批注,不调用 agent</span>{onDelete && <DeleteRemarkButton text={original} onDelete={onDelete} disabled={saving} />}<button type="button" disabled={saving} onClick={() => setEditing(false)}>取消</button><button type="button" disabled={saving || !draft.trim()} onClick={() => void save()}>{saving ? '保存中…' : '保存修改'}</button></div>
           </div> : <div className="c-prose">{renderMarkdown(text)}</div>}
         </div>
+        {onClassify && <ClassifyMessage kind={kind} onClassify={onClassify} />}
         {proposals?.map((p) => (
           <ProposalCard
             key={p.id}
@@ -519,3 +546,41 @@ function MessageBubble({
 }
 
 const noop = async (): Promise<void> => undefined;
+
+/** 二次点击确认只删除这一条;确认后仍核对首次点击时看到的正文。 */
+function DeleteRemarkButton({ text, onDelete, disabled = false }: { text: string; onDelete: (expectedText: string) => Promise<void>; disabled?: boolean }) {
+  const [expected, setExpected] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (expected === null) return;
+    const timer = setTimeout(() => setExpected(null), 5000);
+    return () => clearTimeout(timer);
+  }, [expected]);
+  const remove = async () => {
+    if (deleting || disabled || expected === null) return;
+    setDeleting(true); setError('');
+    try { await onDelete(expected); }
+    catch (error) { setError(stripIpcWrapper((error as Error).message)); setExpected(null); }
+    finally { setDeleting(false); }
+  };
+  return <span className="remark-delete">
+    <button type="button" className="remark-delete-trigger" disabled={disabled || deleting} title="只删除这条批注,保留讨论和其他消息" onClick={() => {
+      if (expected === null) { setExpected(text); setError(''); } else void remove();
+    }}>{deleting ? '删除中…' : expected !== null ? '确认删除？' : '删除'}</button>
+    {expected !== null && !deleting && <button type="button" disabled={disabled} onClick={() => setExpected(null)}>取消删除</button>}
+    {error && <span className="remark-delete-error" role="alert">{error}</span>}
+  </span>;
+}
+
+function ClassifyMessage({ kind, onClassify }: { kind?: 'note' | 'chat' | 'legacy'; onClassify: (kind: 'note' | 'chat') => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return <div className="remark-classify">
+    {(['note', 'chat'] as const).filter(value => value !== kind).map(value => <button key={value} type="button" disabled={busy} onClick={() => {
+      setBusy(true); setError('');
+      void onClassify(value).catch((error: Error) => setError(stripIpcWrapper(error.message))).finally(() => setBusy(false));
+    }}>{value === 'note' ? '移到批注' : '移到对话'}</button>)}
+    {error && <span role="alert">{error}</span>}
+  </div>;
+}

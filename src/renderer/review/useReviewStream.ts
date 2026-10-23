@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
+import { messageKind } from '@shared/domain';
 import { workspaceAnchorVisible } from '@shared/workspace-anchors';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewRound } from '@shared/domain';
 import type { DiffFile } from '@shared/diff';
@@ -86,7 +87,7 @@ export interface ReviewStreamState {
   /** 点击追问时补齐尚未到达的承载线程;失败交给按钮明确回显。 */
   ensureDiscussion: (discussionId: string) => Promise<void>;
   /** 乐观插入一条本地 user 消息(立即上屏),权威 message 事件到达时按文本去重替换;返回临时 id。 */
-  addPendingMessage: (discussionId: string, text: string) => string;
+  addPendingMessage: (discussionId: string, text: string, kind?: 'note' | 'chat') => string;
   /** 移除一条消息(发送失败时清理乐观占位)。 */
   dropMessage: (discussionId: string, id: string) => void;
 }
@@ -170,6 +171,7 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
   const [retrying, setRetrying] = useState<ReviewStreamState['retrying']>(null);
   // 已发起过历史拉取的 discussionId,避免重复 fetch(实时消息由事件流补充)
   const fetched = useRef<Set<string>>(new Set());
+  const deletedMessages = useRef(new Set<string>());
 
   const ensureMessages = useCallback(
     (discussionId: string) => {
@@ -180,7 +182,7 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
         setMessages((prev) => {
           const bucket = prev[discussionId] ?? [];
           const seen = new Set(bucket.map((m) => m.id));
-          const merged = [...bucket, ...list.filter((m) => !seen.has(m.id))];
+          const merged = [...bucket, ...list.filter((m) => !seen.has(m.id) && !deletedMessages.current.has(m.id))];
           merged.sort((a, b) => a.createdAt - b.createdAt);
           return { ...prev, [discussionId]: merged };
         });
@@ -190,9 +192,9 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
   );
 
   const pendingSeq = useRef(0);
-  const addPendingMessage = useCallback((discussionId: string, text: string): string => {
+  const addPendingMessage = useCallback((discussionId: string, text: string, kind: 'note' | 'chat' = 'chat'): string => {
     const id = `pending-${pendingSeq.current++}`;
-    const msg: Message = { id, discussionId, role: 'user', text, createdAt: Date.now() };
+    const msg: Message = { id, discussionId, role: 'user', text, kind, createdAt: Date.now() };
     setMessages((prev) => ({ ...prev, [discussionId]: [...(prev[discussionId] ?? []), msg] }));
     return id;
   }, []);
@@ -227,6 +229,7 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
     setDiff([]);
     setDiffReady(false);
     fetched.current = new Set();
+    deletedMessages.current = new Set();
 
     // 失败也要把 diffReady 落定:否则进度永远停在"拉取 diff",且锚点写操作被一直锁住
     const loadDiff = () => {
@@ -290,18 +293,19 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
         }
         case 'message': {
           const m = e.payload;
+          if (deletedMessages.current.has(m.id)) return;
           setMessages((prev) => {
             const bucket = prev[m.discussionId] ?? [];
             const existing = bucket.findIndex((x) => x.id === m.id);
             if (existing >= 0) {
-              if (bucket[existing].text === m.text) return prev;
+              if (bucket[existing].text === m.text && bucket[existing].kind === m.kind) return prev;
               const updated = bucket.slice(); updated[existing] = m;
               return { ...prev, [m.discussionId]: updated };
             }
             // 权威 user 消息到达:替换掉同文本的乐观占位(pending-*),避免重复
             const cleaned =
               m.role === 'user'
-                ? bucket.filter((x) => !(x.id.startsWith('pending-') && x.text === m.text))
+                ? bucket.filter((x) => !(x.id.startsWith('pending-') && x.text === m.text && messageKind(x) === messageKind(m)))
                 : bucket;
             return { ...prev, [m.discussionId]: [...cleaned, m] };
           });
@@ -338,11 +342,19 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
           });
           return;
         }
+        case 'message-deleted': {
+          deletedMessages.current.add(e.messageId);
+          setMessages(previous => {
+            const list = previous[e.discussionId];
+            return list ? { ...previous, [e.discussionId]: list.filter(message => message.id !== e.messageId) } : previous;
+          });
+          return;
+        }
         case 'messages-cleared': {
-          const { discussionId } = e;
-          setMessages((prev) => (prev[discussionId] ? { ...prev, [discussionId]: [] } : prev));
+          const { discussionId, kind } = e;
+          setMessages((prev) => (prev[discussionId] ? { ...prev, [discussionId]: kind ? prev[discussionId].filter(message => messageKind(message) !== kind) : [] } : prev));
           // 定格的中断残文也一并清掉:它挂在这条线程上,清空讨论就该连它一起
-          setStreams((prev) => putStreams(prev, discussionId, []));
+          if (e.kind !== 'note') setStreams((prev) => putStreams(prev, discussionId, []));
           return;
         }
         case 'reply-started': {

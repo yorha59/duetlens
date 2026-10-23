@@ -13,6 +13,7 @@ export interface UnsentDraft {
    * null = 当时连线程都还没建出来。
    */
   discussionId: string | null;
+  mode?: 'note' | 'chat';
 }
 
 /**
@@ -20,6 +21,7 @@ export interface UnsentDraft {
  * 无活跃线程时由调用方接成「新开一条无锚点的全局讨论」。
  */
 export interface ComposerProps {
+  mode?: 'note' | 'chat';
   focusNonce?: number;
   disabled: boolean;
   placeholder: string;
@@ -40,7 +42,9 @@ export interface ComposerProps {
 }
 
 export function Composer({
-  focusNonce,  disabled,
+  mode = 'note',
+  focusNonce,
+  disabled,
   placeholder,
   scope,
   onSend,
@@ -49,18 +53,20 @@ export function Composer({
   onRestore,
   onDraftChange,
 }: ComposerProps) {
-  const [text, setText] = useState('');
+  const [drafts, setDrafts] = useState({ note: '', chat: '' });
+  const text = drafts[mode];
+  const setText = (next: string | ((current: string) => string)) => setDrafts(current => ({ ...current, [mode]: typeof next === 'string' ? next : next(current[mode]) }));
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (focusNonce === undefined) return;
     inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
-  useDraftFlag(text.trim().length > 0, onDraftChange);
+  useDraftFlag(!!(drafts.note.trim() || drafts.chat.trim()), onDraftChange);
 
   // 先清空是因为发送可能挂着一整轮 turn(几十秒起步),不能一直锁着输入框;等待期间还能接着打下一句。
   // 因此失败时不能直接往框里塞:那句话可能早被新内容占着,多条同时失败更会互相覆盖 ——
   // 一律转成待恢复的一条,谁都不会凭空消失,放回来的时机交给用户。
-  const submit = (askAgent = false) => {
+  const submit = (askAgent = mode === 'chat') => {
     const v = text.trim();
     if (!v || disabled) return;
     setText('');
@@ -107,9 +113,8 @@ export function Composer({
           }}
         />
         <div className="bar">
-          <button className="ask-agent" title="调用审核 agent 回复这条批注" onClick={() => submit(true)} disabled={disabled || !text.trim()}>询问 agent</button>
-          <button className="send" title="只保存批注,不会启动 agent" onClick={() => submit()} disabled={disabled || !text.trim()}>
-            保存批注 ⌘↵
+          <button className="send" title={mode === 'chat' ? '发送问题给审核 agent' : '只保存批注,不会启动 agent'} onClick={() => submit()} disabled={disabled || !text.trim()}>
+            {mode === 'chat' ? '发送给 agent ⌘↵' : '保存批注 ⌘↵'}
           </button>
         </div>
       </div>

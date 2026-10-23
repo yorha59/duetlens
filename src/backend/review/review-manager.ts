@@ -683,7 +683,8 @@ export class ReviewManager extends EventEmitter {
    * 默认标题/正文取该讨论首条 user 消息(截断),严重度默认 medium,留待用户就地编辑。
    */
   promoteDiscussion(reviewId: string, discussionId: string): Finding {
-    const firstUser = this.store.listMessages(discussionId).find((m) => m.role === 'user');
+    const firstUser = this.store.listMessages(discussionId).find((m) => m.role === 'user' && m.kind === 'note')
+      ?? this.store.listMessages(discussionId).find((m) => m.role === 'user' && m.kind === 'legacy');
     const title = firstUser ? firstUser.text.slice(0, 60) : '待补充标题';
     const finding = this.store.promoteDiscussion(discussionId, {
       severity: 'medium',
@@ -995,10 +996,23 @@ export class ReviewManager extends EventEmitter {
     return message;
   }
 
+  classifyMessage(reviewId: string, messageId: string, kind: 'note' | 'chat', expectedText: string): Message {
+    const message = this.store.classifyUserMessage(reviewId, messageId, kind, expectedText);
+    this.forward({ reviewId, type: 'message', payload: message });
+    return message;
+  }
+
+  deleteMessage(reviewId: string, messageId: string, expectedText: string): void {
+    const message = this.store.deleteUserMessage(reviewId, messageId, expectedText);
+    this.forward({ reviewId, type: 'message-deleted', discussionId: message.discussionId, messageId: message.id });
+  }
+
   /** 清空一条 discussion 的往来消息(finding 卡与锚点保留),便于重新讨论。 */
-  clearDiscussion(reviewId: string, discussionId: string): void {
-    this.store.clearMessages(discussionId);
-    this.forward({ reviewId, type: 'messages-cleared', discussionId });
+  clearDiscussion(reviewId: string, discussionId: string, kind?: 'note' | 'chat'): void {
+    if (kind !== undefined && kind !== 'note' && kind !== 'chat') throw new Error('留言类型无效');
+    if (this.store.getDiscussion(discussionId)?.reviewId !== reviewId) throw new Error('讨论不属于本次审核');
+    this.store.clearMessages(discussionId, kind);
+    this.forward({ reviewId, type: 'messages-cleared', discussionId, kind });
   }
 
   /** 向某条 discussion 追问;会话不在内存时先按 agentSessionId 续接。 */
@@ -1008,7 +1022,7 @@ export class ReviewManager extends EventEmitter {
       const discussion = this.store.getDiscussion(discussionId);
       if (!this.store.getReview(reviewId) || !discussion || discussion.reviewId !== reviewId) throw new Error('讨论不属于本次审核');
       if (!text.trim()) throw new Error('批注内容不能为空');
-      const message = this.store.addMessage(discussionId, 'user', text.trim());
+      const message = this.store.addMessage(discussionId, 'user', text.trim(), 'note');
       this.forward({ reviewId, type: 'message', payload: message });
       return message;
     }

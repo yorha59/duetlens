@@ -464,7 +464,7 @@ function ReviewPane({
   const unsentSeq = useRef(0);
   // discussion 协同态:活跃线程 / 在途追问
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
-  const [composerFocus, setComposerFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const [composerFocus, setComposerFocus] = useState<{ id: string; nonce: number; mode?: 'note' | 'chat' } | null>(null);
   const followupSequence = useRef(0);
   // 每次追问在途期间占一条,记着问的是哪条线程。composer 发出即清空输入框、不锁,
   // 所以同一线程可以同时挂着几条 —— 单个 discussionId 会被先回来的那条提前清掉。
@@ -534,7 +534,7 @@ function ReviewPane({
     expandFile(f.file);
     requestFocusFinding(f.id);
     setActiveDiscussionId(f.discussionId);
-    setComposerFocus({ id: f.discussionId, nonce: request });
+    setComposerFocus({ id: f.discussionId, nonce: request, mode: 'chat' });
   };
 
   const focusDiscussion = (id: string) => {
@@ -558,7 +558,7 @@ function ReviewPane({
   const runSend = useCallback(
     async (discussionId: string, text: string, askAgent = false) => {
       if (!reviewId) return;
-      const pendingId = addPendingMessage(discussionId, text);
+      const pendingId = addPendingMessage(discussionId, text, askAgent ? 'chat' : 'note');
       const sendId = sendSeq.current++;
       if (askAgent) setSending((prev) => [...prev, { id: sendId, discussionId }]);
       setReplyFailure((cur) => dropKey(cur, discussionId));
@@ -610,13 +610,13 @@ function ReviewPane({
   // 没发出去的原文连同它本来要问的线程一起收着(见 UnsentDraft.discussionId);
   // 发送路径都经这里,定性文案不必各写一遍。
   const keepFailed = useCallback(
-    (text: string, discussionId: string | null, e: unknown) => {
+    (text: string, discussionId: string | null, e: unknown, askAgent = false) => {
       const message = (e as Error).message ?? String(e);
       // 满载:原文照收(一个字都没发出去),但真正该看的是「在跑的是谁」那份名单;
       // 给程序认的那段码剥掉再示人。
       if (isLiveSessionLimit(message)) void hitCapacity('这条追问暂时发不出去');
       const reason = describeSendFailure(stripLimitCode(message)).raw;
-      setUnsent((prev) => [...prev, { id: unsentSeq.current++, text, reason, discussionId }]);
+      setUnsent((prev) => [...prev, { id: unsentSeq.current++, text, reason, discussionId, mode: askAgent ? 'chat' : 'note' }]);
     },
     [hitCapacity],
   );
@@ -634,8 +634,9 @@ function ReviewPane({
       if (!diffReady) throw new Error('diff 正在重新拉取,等它落定再发起讨论');
       const d = await window.duetlens.review.addDiscussion(reviewId, anchor);
       setActiveDiscussionId(d.id);
+      setComposerFocus({ id: d.id, nonce: ++followupSequence.current, mode: askAgent ? 'chat' : 'note' });
       setTab('discussion');
-      if (askAgent) void runSend(d.id, text, true).catch((e: unknown) => keepFailed(text, d.id, e));
+      if (askAgent) void runSend(d.id, text, true).catch((e: unknown) => keepFailed(text, d.id, e, true));
       else await runSend(d.id, text);
     },
     [reviewId, diffReady, runSend, keepFailed],
@@ -696,23 +697,23 @@ function ReviewPane({
         try {
           target = await startGlobalDiscussion();
         } catch (e) {
-          keepFailed(text, null, e);
+          keepFailed(text, null, e, askAgent);
           return;
         }
         if (!target) return;
       }
-      await runSend(target, text, askAgent).catch((e: unknown) => keepFailed(text, target, e));
+      await runSend(target, text, askAgent).catch((e: unknown) => keepFailed(text, target, e, askAgent));
     },
     [activeDiscussionId, runSend, startGlobalDiscussion, keepFailed],
   );
 
   // 清空某条 discussion 的往来消息(finding 卡保留),重开讨论;落库后经事件流回推清空。
   const onClearMessages = useCallback(
-    (discussionId: string) => {
+    (discussionId: string, kind: 'note' | 'chat') => {
       if (!reviewId) return;
       // 往来都清了,挂在这条线程上的「没等到回复」也就无所指了
-      setReplyFailure((cur) => dropKey(cur, discussionId));
-      void window.duetlens.review.clearDiscussion(reviewId, discussionId);
+      if (kind === 'chat') setReplyFailure((cur) => dropKey(cur, discussionId));
+      void window.duetlens.review.clearDiscussion(reviewId, discussionId, kind);
     },
     [reviewId],
   );
@@ -1535,7 +1536,7 @@ function RightPanel({
   onOpenFile,
 }: {
   onAddCommentToCodex: (input: import('@shared/remote-comments').RemoteCommentContext) => Promise<void>;
-  composerFocus: { id: string; nonce: number } | null;
+  composerFocus: { id: string; nonce: number; mode?: 'note' | 'chat' } | null;
   codexChat: ReactNode;
   tab: RightTab;
   onTab: (t: RightTab) => void;
@@ -1581,7 +1582,7 @@ function RightPanel({
   onJumpToCode: (d: Discussion) => void;
   ensureMessages: (id: string) => void;
   onPromote: (discussionId: string) => void;
-  onClearMessages: (discussionId: string) => void;
+  onClearMessages: (discussionId: string, kind: 'note' | 'chat') => void;
   proposals: FindingProposal[];
   onApplyProposal: (proposalId: string) => Promise<unknown>;
   onSkipProposal: (proposalId: string) => Promise<unknown>;

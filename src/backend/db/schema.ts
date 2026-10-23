@@ -377,9 +377,14 @@ CREATE TABLE codex_chat_drafts (thread_id TEXT PRIMARY KEY, draft_json TEXT NOT 
 CREATE TABLE codex_chat_sends (request_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
 `;
 
+const V35 = `
+ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'legacy' CHECK (kind IN ('note', 'chat', 'legacy'));
+UPDATE messages SET kind = 'chat' WHERE role = 'agent';
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33, V34,
+  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33, V34, V35,
 ];
 
 export function migrate(db: Database): void {

@@ -90,6 +90,8 @@ export const IpcChannels = {
   reviewMessages: 'review:messages',
   reviewAddDiscussion: 'review:add-discussion',
   reviewEditMessage: 'review:edit-message',
+  reviewDeleteMessage: 'review:delete-message',
+  reviewClassifyMessage: 'review:classify-message',
   reviewSendMessage: 'review:send-message',
   reviewClearDiscussion: 'review:clear-discussion',
   reviewProposals: 'review:proposals',
@@ -451,8 +453,9 @@ export type ReviewEvent =
   | { reviewId: string; type: 'finding'; payload: Finding }
   | { reviewId: string; type: 'workspace'; payload: Review }
   | { reviewId: string; type: 'message'; payload: Message }
+  | { reviewId: string; type: 'message-deleted'; discussionId: string; messageId: string }
   | { reviewId: string; type: 'finding-proposal'; payload: FindingProposal }
-  | { reviewId: string; type: 'messages-cleared'; discussionId: string }
+  | { reviewId: string; type: 'messages-cleared'; discussionId: string; kind?: 'note' | 'chat' }
   | { reviewId: string; type: 'discussion'; payload: Discussion }
   | { reviewId: string; type: 'review'; payload: Review }
   | { reviewId: string; type: 'status'; payload: Review['status'] }
@@ -569,10 +572,12 @@ export interface DuetlensApi {
     addDiscussion(reviewId: string, anchor?: DiscussionAnchor | null): Promise<Discussion>;
     /** 就某条 discussion 向 agent 追问;返回 agent 回复(无文本时返回用户消息)。 */
     /** note 仅保存;agent（兼容缺省）才启动模型。 */
+    classifyMessage(reviewId: string, messageId: string, kind: 'note' | 'chat', expectedText: string): Promise<Message>;
+    deleteMessage(reviewId: string, messageId: string, expectedText: string): Promise<void>;
     editMessage(reviewId: string, messageId: string, text: string, expectedText: string): Promise<Message>;
     sendMessage(reviewId: string, discussionId: string, text: string, mode?: 'note' | 'agent'): Promise<Message>;
     /** 清空一条 discussion 的往来消息(finding 卡保留);经 `messages-cleared` 事件回推。 */
-    clearDiscussion(reviewId: string, discussionId: string): Promise<void>;
+    clearDiscussion(reviewId: string, discussionId: string, kind?: 'note' | 'chat'): Promise<void>;
     /** 该 review 名下 agent 提出的全部回写提案(pending / applied / skipped 都在)。 */
     proposals(reviewId: string): Promise<FindingProposal[]>;
     /** 采纳一条提案:按 kind 走与手动操作同一条落库路径,旧值记进提案供撤销。 */

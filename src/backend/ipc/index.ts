@@ -292,12 +292,14 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   ipcMain.handle(IpcChannels.reviewAddDiscussion, (_e, reviewId: string, anchor?: DiscussionAnchor | null) =>
     manager.addUserDiscussion(reviewId, anchor),
   );
+  ipcMain.handle(IpcChannels.reviewClassifyMessage, (_e, reviewId: string, messageId: string, kind: 'note' | 'chat', expectedText: string) => manager.classifyMessage(reviewId, messageId, kind, expectedText));
+  ipcMain.handle(IpcChannels.reviewDeleteMessage, (_e, reviewId: string, messageId: string, expectedText: string) => manager.deleteMessage(reviewId, messageId, expectedText));
   ipcMain.handle(IpcChannels.reviewEditMessage, (_e, reviewId: string, messageId: string, text: string, expectedText: string) => manager.editMessage(reviewId, messageId, text, expectedText));
   ipcMain.handle(IpcChannels.reviewSendMessage, (_e, reviewId: string, discussionId: string, text: string, mode?: 'note' | 'agent') =>
     manager.sendMessage(reviewId, discussionId, text, mode),
   );
-  ipcMain.handle(IpcChannels.reviewClearDiscussion, (_e, reviewId: string, discussionId: string) =>
-    manager.clearDiscussion(reviewId, discussionId),
+  ipcMain.handle(IpcChannels.reviewClearDiscussion, (_e, reviewId: string, discussionId: string, kind?: 'note' | 'chat') =>
+    manager.clearDiscussion(reviewId, discussionId, kind),
   );
   ipcMain.handle(IpcChannels.reviewProposals, (_e, reviewId: string) => manager.getProposals(reviewId));
   ipcMain.handle(IpcChannels.reviewApplyProposal, (_e, reviewId: string, proposalId: string) =>

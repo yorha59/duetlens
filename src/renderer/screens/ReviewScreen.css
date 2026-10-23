@@ -5789,3 +5789,14 @@ body.rz-dragging * {
 .remark-editor p[role=alert] { color: var(--red); font-size: 12px; }
 
 .finding-followup-error { padding: 0 16px; color: var(--del); font-size: 12px; }
+
+.remark-delete { display: inline-flex; flex: none; align-items: center; flex-wrap: wrap; gap: 6px; }
+.remark-delete button { font-size: 11px; background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; padding: 2px 6px; color: var(--text-dim); }
+.remark-delete .remark-delete-trigger, .remark-delete .remark-delete-error { color: var(--del); }
+.remark-delete button:disabled { opacity: .5; cursor: default; }
+
+.discussion-kind-tabs { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.discussion-kind-tabs button, .remark-classify button { font: 12px var(--sans); color: var(--text-dim); border: 1px solid var(--border); border-radius: 5px; background: transparent; padding: 5px 10px; cursor: pointer; }
+.discussion-kind-tabs button[aria-selected=true] { color: var(--agent-2); border-color: var(--agent-line); background: var(--agent-soft); }
+.legacy-message-hint { padding: 8px 12px; font-size: 12px; color: var(--text-dim); }
+.remark-classify { display: flex; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--del); }

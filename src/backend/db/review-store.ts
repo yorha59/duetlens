@@ -139,6 +139,7 @@ interface DiscussionRow {
 }
 
 interface MessageRow {
+  kind: Message['kind'];
   id: string;
   discussion_id: string;
   role: string;
@@ -320,6 +321,7 @@ function toDiscussion(r: DiscussionRow): Discussion {
 
 function toMessage(r: MessageRow): Message {
   return {
+    kind: r.kind,
     id: r.id,
     discussionId: r.discussion_id,
     role: r.role as MessageRole,
@@ -1355,15 +1357,15 @@ export class ReviewStore {
     return rows.map(toDiscussion);
   }
 
-  addMessage(discussionId: string, role: MessageRole, text: string): Message {
+  addMessage(discussionId: string, role: MessageRole, text: string, kind: 'note' | 'chat' = 'chat'): Message {
     const id = randomUUID();
     const ts = this.withReviewTouch({ discussion: discussionId }, (writeTs) => {
       this.db
-        .prepare('INSERT INTO messages (id, discussion_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(id, discussionId, role, text, writeTs);
+        .prepare('INSERT INTO messages (id, discussion_id, role, text, created_at, kind) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, discussionId, role, text, writeTs, kind);
       return writeTs;
     });
-    return { id, discussionId, role, text, createdAt: ts };
+    return { id, discussionId, role, text, createdAt: ts, kind };
   }
 
   listMessages(discussionId: string): Message[] {
@@ -1375,7 +1377,7 @@ export class ReviewStore {
 
   updateUserMessage(reviewId: string, messageId: string, text: string, expectedText: string): Message {
     const row = this.db.prepare(`SELECT m.* FROM messages m JOIN discussions d ON d.id = m.discussion_id
-      WHERE m.id = ? AND d.review_id = ? AND m.role = 'user'`).get(messageId, reviewId) as MessageRow | undefined;
+      WHERE m.id = ? AND d.review_id = ? AND m.role = 'user' AND m.kind IN ('note', 'legacy')`).get(messageId, reviewId) as MessageRow | undefined;
     if (!row) throw new Error('批注不存在或不属于本次审核');
     if (typeof text !== 'string' || !text.trim()) throw new Error('批注内容不能为空');
     if (row.text !== expectedText) throw new Error('批注已被修改,请刷新后重试');
@@ -1385,10 +1387,35 @@ export class ReviewStore {
     });
   }
 
+  /** 仅删除指定用户批注,检查归属与正文版本,保留讨论和其他消息。 */
+  deleteUserMessage(reviewId: string, messageId: string, expectedText: string): Message {
+    const row = this.db.prepare(`SELECT m.* FROM messages m JOIN discussions d ON d.id = m.discussion_id
+      WHERE m.id = ? AND d.review_id = ? AND m.role = 'user' AND m.kind IN ('note', 'legacy')`).get(messageId, reviewId) as MessageRow | undefined;
+    if (!row) throw new Error('批注不存在或不属于本次审核');
+    if (row.text !== expectedText) throw new Error('批注已被修改,请刷新后重试删除');
+    return this.withReviewTouch({ discussion: row.discussion_id }, () => {
+      this.db.prepare('DELETE FROM messages WHERE id = ?').run(messageId);
+      return toMessage(row);
+    });
+  }
+
+  classifyUserMessage(reviewId: string, messageId: string, kind: 'note' | 'chat', expectedText: string): Message {
+    if (kind !== 'note' && kind !== 'chat') throw new Error('留言类型无效');
+    const row = this.db.prepare(`SELECT m.* FROM messages m JOIN discussions d ON d.id = m.discussion_id
+      WHERE m.id = ? AND d.review_id = ? AND m.role = 'user'`).get(messageId, reviewId) as MessageRow | undefined;
+    if (!row) throw new Error('留言不存在或不属于本次审核');
+    if (row.text !== expectedText) throw new Error('留言已被修改,请刷新后重试');
+    return this.withReviewTouch({ discussion: row.discussion_id }, () => {
+      this.db.prepare('UPDATE messages SET kind = ? WHERE id = ?').run(kind, messageId);
+      return toMessage({ ...row, kind });
+    });
+  }
+
   /** 清空一条 discussion 的往来消息(discussion / finding 锚点保留),用于重开讨论。 */
-  clearMessages(discussionId: string): void {
+  clearMessages(discussionId: string, kind?: 'note' | 'chat'): void {
     this.withReviewTouch({ discussion: discussionId }, () => {
-      this.db.prepare('DELETE FROM messages WHERE discussion_id = ?').run(discussionId);
+      if (kind) this.db.prepare('DELETE FROM messages WHERE discussion_id = ? AND kind = ?').run(discussionId, kind);
+      else this.db.prepare('DELETE FROM messages WHERE discussion_id = ?').run(discussionId);
     });
   }
 

@@ -1255,12 +1255,34 @@ export function installPreviewApi(): void {
        * 走完整条在途气泡的四个阶段:排队 → 起跑取证 → 逐段出字 → 落定。
        * `?reply=fail|stop` 分别自查中断态(残文定格)与「停止」按钮。
        */
+      classifyMessage: async (_reviewId, messageId, kind, expectedText) => {
+        for (const list of Object.values(msgStore)) {
+          const item = list.find(message => message.id === messageId);
+          if (!item || item.text !== expectedText) continue;
+          item.kind = kind;
+          fire({ reviewId: 'demo', type: 'message', payload: item });
+          return item;
+        }
+        throw new Error('留言不存在');
+      },
+      deleteMessage: async (_reviewId, messageId, expectedText) => {
+        for (const [discussionId, list] of Object.entries(msgStore)) {
+          const item = list.find(message => message.id === messageId && message.role === 'user');
+          if (!item) continue;
+          if (item.text !== expectedText) throw new Error('批注已被修改,请刷新后重试删除');
+          msgStore[discussionId] = list.filter(message => message.id !== messageId);
+          fire({ reviewId: 'demo', type: 'message-deleted', discussionId, messageId });
+          return;
+        }
+        throw new Error('批注不存在');
+      },
       editMessage: async (_reviewId, messageId, text) => ({ id: messageId, discussionId: 'preview', role: 'user', text, createdAt: Date.now() }),
       sendMessage: async (_r, discussionId, text, messageMode) => {
         const userMsg: Message = {
           id: `m-${Date.now()}-u`,
           discussionId,
           role: 'user',
+          kind: messageMode === 'note' ? 'note' : 'chat',
           text,
           createdAt: Date.now(),
         };
@@ -1362,9 +1384,9 @@ export function installPreviewApi(): void {
         liveReplies.delete(discussionId);
         fire({ reviewId: 'demo', type: 'reply-ended', discussionId, turnId, outcome: 'stopped' });
       },
-      clearDiscussion: async (_r, discussionId) => {
-        msgStore[discussionId] = [];
-        fire({ reviewId: 'demo', type: 'messages-cleared', discussionId });
+      clearDiscussion: async (_r, discussionId, kind) => {
+        msgStore[discussionId] = kind ? (msgStore[discussionId] ?? []).filter(message => (message.kind ?? (message.role === 'agent' ? 'chat' : 'legacy')) !== kind) : [];
+        fire({ reviewId: 'demo', type: 'messages-cleared', discussionId, kind });
       },
       // 提案三个去向:与后端同样真的改内存态并回推,便于在预览里走完「应用 → 卡片刷新 → 撤销」
       applyProposal: async (_r, proposalId) => {

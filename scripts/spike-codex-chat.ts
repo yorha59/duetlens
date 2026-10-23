@@ -118,7 +118,7 @@ async function main() {
       const oldStore = new ReviewStore(legacy);
       const oldReview = oldStore.createReview({ source: 'local-worktree', sourceRef: directory });
       oldStore.setCodexBinding(oldReview.id, { threadId, mode: 'copy' });
-      legacy.exec('DROP TABLE codex_chat_drafts; DROP TABLE codex_chat_sends; PRAGMA user_version=33');
+      legacy.exec('DROP TABLE codex_chat_drafts; DROP TABLE codex_chat_sends; ALTER TABLE messages DROP COLUMN kind; PRAGMA user_version=33');
       migrate(legacy);
       assert.equal(legacy.pragma('user_version', { simple: true }), SCHEMA_VERSION);
       assert.equal(oldStore.getCodexBinding(oldReview.id)?.threadId, threadId);

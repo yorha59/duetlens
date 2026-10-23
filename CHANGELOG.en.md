@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.27] - 2026-10-23
+
+- Separate saved annotations from agent questions and replies with explicit message kinds, independent drafts, and scoped clearing. Annotations support editing and individual deletion. Legacy user messages remain unclassified until explicitly assigned.
+
 ## [0.12.0-fork.26] - 2026-10-23
 
 - Finding follow-up actions recover missing discussion data, select the matching thread, and focus the composer on every click while preserving typed text. Failures appear on the card and can be retried.
