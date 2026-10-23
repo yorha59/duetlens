@@ -1,5 +1,5 @@
 import { imeComposing } from '../../keys';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDraftFlag } from './useDraftFlag';
 
 /** 一条没发出去的原文;每次失败各占一条,不互相顶掉,由用户决定何时放回输入框。 */
@@ -20,6 +20,7 @@ export interface UnsentDraft {
  * 无活跃线程时由调用方接成「新开一条无锚点的全局讨论」。
  */
 export interface ComposerProps {
+  focusNonce?: number;
   disabled: boolean;
   placeholder: string;
   /** 底部作用域说明(全局会话 · 已锚定 … · read-only sandbox) */
@@ -39,7 +40,7 @@ export interface ComposerProps {
 }
 
 export function Composer({
-  disabled,
+  focusNonce,  disabled,
   placeholder,
   scope,
   onSend,
@@ -49,6 +50,11 @@ export function Composer({
   onDraftChange,
 }: ComposerProps) {
   const [text, setText] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (focusNonce === undefined) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [focusNonce]);
   useDraftFlag(text.trim().length > 0, onDraftChange);
 
   // 先清空是因为发送可能挂着一整轮 turn(几十秒起步),不能一直锁着输入框;等待期间还能接着打下一句。
@@ -86,6 +92,7 @@ export function Composer({
       })}
       <div className="box">
         <textarea
+          ref={inputRef}
           className="composer-input"
           placeholder={placeholder}
           value={text}

@@ -26,6 +26,7 @@ function UserGlyph() {
 }
 
 export interface DiscussionTabProps {
+  composerFocus?: { id: string; nonce: number } | null;
   discussions: Discussion[];
   findings: Finding[];
   messages: Record<string, Message[]>;
@@ -113,6 +114,11 @@ export function DiscussionTab(props: DiscussionTabProps) {
 
   const active = discussions.find((d) => d.id === activeId) ?? null;
   const threadRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const selected = listRef.current?.querySelector<HTMLElement>('.disc-item.on');
+    if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeId, props.composerFocus?.nonce]);
 
   useEffect(() => {
     if (activeId) ensureMessages(activeId);
@@ -229,7 +235,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
   return (
     <div className="disc-tab">
       {discussions.length > 0 && (
-        <div className="disc-list">
+        <div className="disc-list" ref={listRef}>
           <NewGlobalButton onClick={props.onStartGlobal} />
           {discussions.map((d) => {
             const f = findingByDisc.get(d.id);
@@ -401,8 +407,9 @@ export function DiscussionTab(props: DiscussionTabProps) {
 
       {/* 空态不禁用:直接开打就是一条无锚点的全局讨论(见 ReviewScreen.onComposerSend) */}
       <Composer
+        focusNonce={active && props.composerFocus?.id === active.id ? props.composerFocus.nonce : undefined}
         disabled={false}
-        placeholder={active ? '添加批注…' : '记录关于本次改动的批注…'}
+        placeholder={active ? '就这条讨论继续提问或添加批注…' : '记录关于本次改动的批注…'}
         scope="保存批注不会调用模型；仅点击「询问 agent」时启动审核 agent"
         onSend={props.onSend}
         unsent={props.unsent}

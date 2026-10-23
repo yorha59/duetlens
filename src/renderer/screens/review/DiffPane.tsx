@@ -190,7 +190,7 @@ export interface DiffPaneProps {
   /** 框选「记为 finding」:在锚点处填写后新增一条 manual finding */
   onAddFinding?: (anchor: DiscussionAnchor, draft: NewFindingDraft) => void | Promise<void>;
   /** 内联 finding 卡「追问」:切 Discussion 栏并选中该 finding 的承载线程 */
-  onDiscussFinding?: (finding: Finding) => void;
+  onDiscussFinding?: (finding: Finding) => void | Promise<void>;
   /** 点 gutter 圆点跳转:finding → 聚焦内联卡;user discussion → 切 Discussion 栏 */
   onJumpFinding?: (finding: Finding) => void;
   onJumpDiscussion?: (discussionId: string) => void;
@@ -1130,7 +1130,7 @@ function DiffFileView({
   currentRound: number;
   onTriage?: (finding: Finding, triage: Triage, reason?: string | null) => void;
   onUpdate?: (input: FindingEditInput) => void;
-  onDiscussFinding?: (finding: Finding) => void;
+  onDiscussFinding?: (finding: Finding) => void | Promise<void>;
   view: DiffView;
   fetchFileContent?: (path: string) => Promise<string | null>;
   viewed: boolean;
@@ -1398,7 +1398,7 @@ function HunkView({
   currentRound: number;
   onTriage?: (finding: Finding, triage: Triage, reason?: string | null) => void;
   onUpdate?: (input: FindingEditInput) => void;
-  onDiscussFinding?: (finding: Finding) => void;
+  onDiscussFinding?: (finding: Finding) => void | Promise<void>;
   onAddThread?: (line: number, snippet: string, side?: 'old' | 'new') => void;
   composeLine: number | null;
   composeNode: React.ReactNode;

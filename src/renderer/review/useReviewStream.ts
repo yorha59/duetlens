@@ -83,6 +83,8 @@ export interface ReviewStreamState {
   retrying: { count: number; error: string } | null;
   /** 懒加载一条 discussion 的历史消息(续接的旧 review);实时消息仍走事件流。 */
   ensureMessages: (discussionId: string) => void;
+  /** 点击追问时补齐尚未到达的承载线程;失败交给按钮明确回显。 */
+  ensureDiscussion: (discussionId: string) => Promise<void>;
   /** 乐观插入一条本地 user 消息(立即上屏),权威 message 事件到达时按文本去重替换;返回临时 id。 */
   addPendingMessage: (discussionId: string, text: string) => string;
   /** 移除一条消息(发送失败时清理乐观占位)。 */
@@ -123,6 +125,20 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
   const [review, setReview] = useState<Review | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
+  const currentReviewId = useRef(reviewId);
+  currentReviewId.current = reviewId;
+  const ensureDiscussion = useCallback(async (discussionId: string) => {
+    if (discussions.some(item => item.id === discussionId)) return;
+    if (!reviewId) throw new Error('审核任务尚未加载');
+    const items = await window.duetlens.review.discussions(reviewId);
+    if (currentReviewId.current !== reviewId) throw new Error('审核任务已切换,请在当前任务重新追问');
+    if (!items.some(item => item.id === discussionId)) throw new Error('找不到这条问题的讨论,请刷新当前审核后重试');
+    setDiscussions(previous => {
+      const merged = new Map(items.map(item => [item.id, item]));
+      for (const item of previous) merged.set(item.id, item);
+      return [...merged.values()];
+    });
+  }, [reviewId, discussions]);
   const [diff, setDiff] = useState<DiffFile[]>([]);
   const [diffReady, setDiffReady] = useState(false);
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
@@ -231,7 +247,15 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
       }
     });
     void window.duetlens.review.findings(reviewId).then((f) => alive && setFindings(f));
-    void window.duetlens.review.discussions(reviewId).then((d) => alive && setDiscussions(d));
+    void window.duetlens.review.discussions(reviewId).then((items) => {
+      if (!alive) return;
+      // 首次快照可能晚于实时事件或点击补拉返回,不能抹掉已到达的线程。
+      setDiscussions(previous => {
+        const merged = new Map(items.map(item => [item.id, item]));
+        for (const item of previous) merged.set(item.id, item);
+        return [...merged.values()];
+      });
+    });
     void window.duetlens.review.proposals(reviewId).then((p) => alive && setProposals(p));
     loadDiff();
     void window.duetlens.review.rounds(reviewId).then((r) => alive && setRounds(r));
@@ -482,6 +506,7 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
     activity,
     retrying,
     ensureMessages,
+    ensureDiscussion,
     addPendingMessage,
     dropMessage,
   };

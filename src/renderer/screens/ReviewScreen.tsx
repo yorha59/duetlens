@@ -432,6 +432,7 @@ function ReviewPane({
     activity,
     retrying,
     ensureMessages,
+    ensureDiscussion,
     streams,
     addPendingMessage,
     dropMessage,
@@ -463,6 +464,8 @@ function ReviewPane({
   const unsentSeq = useRef(0);
   // discussion 协同态:活跃线程 / 在途追问
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
+  const [composerFocus, setComposerFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const followupSequence = useRef(0);
   // 每次追问在途期间占一条,记着问的是哪条线程。composer 发出即清空输入框、不锁,
   // 所以同一线程可以同时挂着几条 —— 单个 discussionId 会被先回来的那条提前清掉。
   const [sending, setSending] = useState<{ id: number; discussionId: string }[]>([]);
@@ -522,14 +525,20 @@ function ReviewPane({
 
   // 内联卡「追问」:选中该 finding 的承载线程并切到 Discussion 栏,composer 即刻可用。
   // 与 focusFinding 的区别只在强制换 tab —— 后者是定位,这里是明确要开聊。
-  const discussFinding = (f: Finding) => {
+  const discussFinding = async (f: Finding) => {
+    const request = ++followupSequence.current;
+    setTab('discussion');
+    await ensureDiscussion(f.discussionId);
+    // 多条卡片快速连点时,迟到的补拉不能把输入框抢回上一条。
+    if (request !== followupSequence.current) return;
     expandFile(f.file);
     requestFocusFinding(f.id);
     setActiveDiscussionId(f.discussionId);
-    setTab('discussion');
+    setComposerFocus({ id: f.discussionId, nonce: request });
   };
 
   const focusDiscussion = (id: string) => {
+    followupSequence.current++;
     setActiveDiscussionId(id);
     setTab('discussion');
     // 选中不同 discussion 时同步把 diff 跳到其锚点代码(点 finding 卡走 focusFinding,此处覆盖列表选择)
@@ -1382,6 +1391,7 @@ function ReviewPane({
             onCommit={(w) => update({ rightWidth: w })}
           />
           <RightPanel
+            composerFocus={composerFocus}
             onAddCommentToCodex={async (input) => {
               if (!codexBinding) { setCodexBindingOpen(true); throw new Error('请先绑定 Codex 对话,再添加评论'); }
               await window.duetlens.review.addCommentToCodex(reviewId, input);
@@ -1473,6 +1483,7 @@ const SEV_ORDER: Severity[] = ['high', 'medium', 'low'];
 const SEV_LABEL: Record<Severity, string> = { high: 'High', medium: 'Med', low: 'Low' };
 
 function RightPanel({
+  composerFocus,
   onAddCommentToCodex,
   codexChat,
   tab,
@@ -1524,6 +1535,7 @@ function RightPanel({
   onOpenFile,
 }: {
   onAddCommentToCodex: (input: import('@shared/remote-comments').RemoteCommentContext) => Promise<void>;
+  composerFocus: { id: string; nonce: number } | null;
   codexChat: ReactNode;
   tab: RightTab;
   onTab: (t: RightTab) => void;
@@ -1821,6 +1833,7 @@ function RightPanel({
 
       {tab === 'discussion' && (
         <DiscussionTab
+          composerFocus={composerFocus}
           discussions={discussions}
           findings={findings}
           messages={messages}

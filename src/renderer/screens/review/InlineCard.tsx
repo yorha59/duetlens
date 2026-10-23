@@ -13,6 +13,7 @@ import type { FindingEditInput } from '@shared/ipc';
 import { imeComposing } from '../../keys';
 import { CategorySelect } from './CategorySelect';
 import { renderMarkdown } from './markdown';
+import { stripIpcWrapper } from './round-error';
 import { currentResolution, currentVerdict, isNewThisRound } from './rounds';
 
 const SEV_LABEL: Record<Severity, string> = { high: 'high', medium: 'med', low: 'low' };
@@ -34,7 +35,7 @@ export interface InlineCardProps {
   /** 就地编辑保存 */
   onUpdate?: (input: FindingEditInput) => void;
   /** 就这条 finding 追问 agent:切到 Discussion 栏并选中其承载线程 */
-  onDiscuss?: (finding: Finding) => void;
+  onDiscuss?: (finding: Finding) => void | Promise<void>;
 }
 
 /**
@@ -227,8 +228,10 @@ function CardView({
   onEdit?: () => void;
   onDismiss?: () => void;
   onAccept?: () => void;
-  onDiscuss?: () => void;
+  onDiscuss?: () => void | Promise<void>;
 }) {
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState('');
   return (
     <div className="c-view">
       <div className="c-head">
@@ -294,12 +297,17 @@ function CardView({
           </div>
         </div>
       )}
+      {openError && <p className="finding-followup-error" role="alert">无法打开讨论：{openError}</p>}
       {/* 追问不受 writable 约束:已提交的 finding 内容锁定,但仍该能接着聊 */}
       {writable || onDiscuss ? (
         <div className="c-actions">
           {onDiscuss && (
-            <button className="btn f-ask" onClick={onDiscuss} title="切到 Discussion 栏就这条 finding 追问">
-              ↳ 追问
+            <button className="btn f-ask" disabled={opening} onClick={() => {
+              if (opening) return;
+              setOpening(true); setOpenError('');
+              void Promise.resolve().then(onDiscuss).catch((error: Error) => setOpenError(stripIpcWrapper(error.message))).finally(() => setOpening(false));
+            }} title="打开这条问题的讨论并聚焦输入框">
+              {opening ? '打开中…' : '↳ 追问'}
             </button>
           )}
           {writable && onEdit && (
