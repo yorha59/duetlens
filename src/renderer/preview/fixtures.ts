@@ -1023,6 +1023,7 @@ export function installPreviewApi(): void {
       fileContent: async (_r, path) => (path === 'src/pipeline.ts' ? PIPELINE_SRC : null),
       discussions: async (id) => id === 'demo-local' ? [] : discussions,
       proposals: async () => proposals,
+      remoteComments: async () => ({ threads: [], comments: [], reviews: [], head: 'preview', fetchedAt: Date.now() }),
       messages: async (discussionId) => msgStore[discussionId] ?? [],
       // ?start 模拟大 PR 的慢启动(阶段按真实顺序推进,diff 停够久能看到「拉取偏慢」提示);
       // ?start=error 在 diff 阶段失败,自查浮层的错误态

@@ -1,7 +1,7 @@
 {
   "name": "duetlens",
   "productName": "Duetlens",
-  "version": "0.12.0-fork.23",
+  "version": "0.12.0-fork.24",
   "description": "Conversational code review — human and agent reviewing together (full rewrite of better-review)",
   "main": "out/main/index.js",
   "private": true,
@@ -67,6 +67,7 @@
     "spike:deleted-line-comments": "tsx scripts/spike-deleted-line-comments.tsx",
     "spike:rebase-workspace": "tsx scripts/spike-rebase-workspace.ts",
     "spike:codex-handoff": "tsx scripts/spike-codex-handoff.ts",
+    "spike:remote-comments": "tsx scripts/spike-remote-comments.ts",
     "spike:remark-chat": "tsx scripts/spike-remark-chat.ts",
     "spike:review-toolbar": "node scripts/spike-review-toolbar.mjs",
     "spike:codex-chat": "tsx scripts/spike-codex-chat.ts"

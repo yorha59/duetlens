@@ -27,6 +27,7 @@ const api: DuetlensApi = {
     latestDiff: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewLatestDiff, reviewId),
     fileContent: (reviewId, path) => ipcRenderer.invoke(IpcChannels.reviewFileContent, reviewId, path),
     discussions: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewDiscussions, reviewId),
+    remoteComments: (id) => ipcRenderer.invoke(IpcChannels.reviewRemoteComments, id),
     messages: (discussionId) => ipcRenderer.invoke(IpcChannels.reviewMessages, discussionId),
     start: (input) => ipcRenderer.invoke(IpcChannels.reviewStart, input),
     codexBinding: (id) => ipcRenderer.invoke(IpcChannels.codexBindingGet, id),

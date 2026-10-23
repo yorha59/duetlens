@@ -1,3 +1,4 @@
+import type { RemotePrComments } from './remote-comments';
 import type { CodexBinding, CodexSelection, CodexHandoffResult } from './codex-handoff';
 import type { CodexChatDraft, CodexChatEvent, CodexChatSend, CodexChatState } from './codex-chat';
 /**
@@ -47,6 +48,7 @@ export const IpcChannels = {
   reviewList: 'review:list',
   reviewListRecent: 'review:list-recent',
   reviewGet: 'review:get',
+  reviewRemoteComments: 'review:remote-comments',
   codexBindingGet: 'codex:binding-get',
   codexBindingSet: 'codex:binding-set',
   codexAddSelection: 'codex:add-selection',
@@ -506,6 +508,7 @@ export interface DuetlensApi {
     /** 读被审文件新侧完整内容(供 DiffPane 展开 diff 外上下文);读不到返回 null。 */
     fileContent(reviewId: string, path: string): Promise<string | null>;
     discussions(reviewId: string): Promise<Discussion[]>;
+    remoteComments(reviewId: string): Promise<RemotePrComments>;
     messages(discussionId: string): Promise<Message[]>;
     /** 对真实 target 发起审核;立即返回 review,首轮扫描后台跑、findings 经事件流入。 */
     start(input: ReviewStartInput): Promise<Review>;

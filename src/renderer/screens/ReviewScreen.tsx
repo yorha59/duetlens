@@ -1,6 +1,7 @@
 import type { CodexBinding } from '@shared/codex-handoff';
 import { CodexSessionButton } from './review/CodexSessionButton';
 import { ReviewToolbar, type ToolbarAction } from './review/ReviewToolbar';
+import { RemoteCommentsPane } from './review/RemoteCommentsPane';
 import { CodexChatPane } from './review/CodexChatPane';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Discussion, Finding, FindingProposal, Message, Review, ReviewIntensity, Severity, Triage, UiSettings } from '@shared/domain';
@@ -70,7 +71,7 @@ const LEFT_MAX = 460;
 const RIGHT_MIN = 300;
 const RIGHT_MAX = 620;
 
-type RightTab = 'discussion' | 'findings' | 'summary' | 'codex';
+type RightTab = 'discussion' | 'findings' | 'summary' | 'codex' | 'github';
 
 /** 去掉一个键;键不在就原样返回,避免白白换掉引用触发下游重渲染。 */
 function dropKey<T>(map: Record<string, T>, key: string): Record<string, T> {
@@ -80,7 +81,7 @@ function dropKey<T>(map: Record<string, T>, key: string): Record<string, T> {
   return rest;
 }
 
-const RIGHT_TABS: RightTab[] = ['discussion', 'findings', 'summary', 'codex'];
+const RIGHT_TABS: RightTab[] = ['discussion', 'findings', 'summary', 'codex', 'github'];
 const isRightTab = (t: string | null): t is RightTab => t !== null && RIGHT_TABS.includes(t as RightTab);
 
 /**
@@ -495,8 +496,15 @@ function ReviewPane({
   const { viewed, collapsed, activeTab, onToggleViewed, onToggleCollapsed, expandFile, setActiveTab } =
     useReviewUiState(reviewId, settings.collapseViewedFiles);
   // tab 优先用该 review 记住的;无记忆时回落到全局默认偏好。切 tab 只写 per-review。
-  const tab: RightTab = isRightTab(activeTab) ? activeTab : settings.defaultTab;
+  const tab: RightTab = isRightTab(activeTab) && (activeTab !== 'github' || review?.source === 'github-pr' && !review.localReview) ? activeTab : settings.defaultTab;
   const setTab = (t: RightTab) => setActiveTab(t);
+  const remoteCommentsOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (review?.source === 'github-pr' && !review.localReview && remoteCommentsOpened.current !== review.id) {
+      remoteCommentsOpened.current = review.id;
+      setActiveTab('github');
+    }
+  }, [review?.id, review?.source, review?.localReview, setActiveTab]);
 
   // 折叠的文件整段内容都不在 DOM 里,内联卡自然也没有 —— 任何跳到代码的动作都得先把它放出来,
   // 否则滚动落空、中栏停在上一处。展开与两处状态更新同批提交,effect 跑时卡片已经在了。
@@ -1642,9 +1650,9 @@ function RightPanel({
   return (
     <div className="right pane">
       <div className="tabs">
-        {RIGHT_TABS.map((t) => (
+        {RIGHT_TABS.filter((t) => t !== 'github' || review?.source === 'github-pr' && !review.localReview).map((t) => (
           <button key={t} className={`tab${t === tab ? ' on' : ''}`} onClick={() => onTab(t)}>
-            {t === 'discussion' ? 'Discussion' : t === 'findings' ? 'Findings' : t === 'codex' ? 'Codex' : 'Summary'}
+            {t === 'discussion' ? 'Discussion' : t === 'findings' ? 'Findings' : t === 'codex' ? 'Codex' : t === 'github' ? 'PR 评论' : 'Summary'}
             {t === 'discussion' && discussions.length > 0 && (
               <span className="tab-count">{discussions.length}</span>
             )}
@@ -1655,6 +1663,7 @@ function RightPanel({
       </div>
 
       {codexChat}
+      {tab === 'github' && review?.source === 'github-pr' && !review.localReview && <RemoteCommentsPane reviewId={review.id} onFile={onOpenFile} />}
       {tab === 'findings' && (
         <div className="tab-body">
           {/* 列表里已经有东西时(重跑必然如此,首轮也在第一条报出后如此),整屏空态的镜片画面

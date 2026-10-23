@@ -1,3 +1,4 @@
+import { readRemoteComments } from '../source/remote-pr-comments';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
@@ -552,6 +553,12 @@ export class ReviewManager extends EventEmitter {
     const review = this.store.getReview(reviewId);
     const diff = this.getDiff(reviewId);
     return this.store.listDiscussions(reviewId).filter((discussion) => workspaceAnchorVisible(discussion, review, diff));
+  }
+
+  async remoteComments(reviewId: string) {
+    const review = this.store.getReview(reviewId);
+    if (!review) throw new Error('审核任务不存在');
+    return readRemoteComments(review);
   }
 
   getMessages(discussionId: string): Message[] {

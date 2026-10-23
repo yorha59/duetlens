@@ -203,6 +203,7 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   ipcMain.handle(IpcChannels.reviewAttachWorkspace, (_e, id: string, repoPath: string) => manager.attachWorkspace(id, repoPath));
   ipcMain.handle(IpcChannels.reviewSyncPreview, (_e, id: string) => manager.syncPreview(id));
   ipcMain.handle(IpcChannels.reviewSyncCode, (_e, id: string, direction: import('@shared/ipc').CodeSyncDirection) => manager.syncCode(id, direction));
+  ipcMain.handle(IpcChannels.reviewRemoteComments, (_e, id: string) => manager.remoteComments(id));
   ipcMain.handle(IpcChannels.reviewGet, (_e, id: string) => manager.getReview(id));
   ipcMain.handle(IpcChannels.reviewFindings, (_e, reviewId: string) => manager.getFindings(reviewId));
   ipcMain.handle(IpcChannels.reviewDiff, (_e, reviewId: string) => manager.getDiff(reviewId));
