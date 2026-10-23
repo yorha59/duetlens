@@ -521,6 +521,23 @@ export class ReviewSession {
     return this.gated(() => this.track(() => this.runResume(opts)));
   }
 
+  /** 仅建立问答会话,不启动首轮扫描或改写轮次状态。 */
+  openChat(opts: StartReviewOptions): Promise<Finding[]> {
+    if (this.store.getReview(this.reviewId)?.agentSessionId) return this.resume(opts);
+    return this.gated(() => this.track(async () => {
+      const mcpUrl = await this.setupMcp(opts.providers);
+      const handle = await this.agent.startConversation({
+        cwd: opts.cwd, mcpUrl, mcpToken: this.mcp!.token,
+        baseInstructions: opts.baseInstructions ?? BUILTIN_BASE_INSTRUCTIONS,
+        model: opts.model, reasoningEffort: opts.reasoningEffort,
+      });
+      this.conversationId = handle.conversationId;
+      this.store.setAgentSessionId(this.reviewId, handle.conversationId);
+      this.recordModel(handle.model); this.openConversation();
+      return this.store.listFindings(this.reviewId);
+    }));
+  }
+
   private async runResume(opts: StartReviewOptions): Promise<Finding[]> {
     const review = this.store.getReview(this.reviewId);
     const threadId = review?.agentSessionId;

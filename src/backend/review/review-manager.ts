@@ -227,6 +227,7 @@ export class ReviewManager extends EventEmitter {
   /** source 等随会话存活的清理钩子;续问要读文件,故不在扫描结束时释放,延到 dispose。 */
   private readonly cleanups = new Map<string, () => void | Promise<void>>();
   /** 活跃会话的内容 provider(读 diff / 文件新侧);供 DiffPane 展开上下文按审核时快照读文件。 */
+  private readonly chatHeads = new Map<string, string | null>();
   private readonly providers = new Map<string, McpContentProviders>();
   /** 在途的会话续接;同一 review 的并发追问共用一次,见 {@link resumeSession}。 */
   private readonly resuming = new Map<string, Promise<ReviewSession>>();
@@ -981,6 +982,12 @@ export class ReviewManager extends EventEmitter {
     }
   }
 
+  editMessage(reviewId: string, messageId: string, text: string, expectedText: string): Message {
+    const message = this.store.updateUserMessage(reviewId, messageId, text, expectedText);
+    this.forward({ reviewId, type: 'message', payload: message });
+    return message;
+  }
+
   /** 清空一条 discussion 的往来消息(finding 卡与锚点保留),便于重新讨论。 */
   clearDiscussion(reviewId: string, discussionId: string): void {
     this.store.clearMessages(discussionId);
@@ -999,8 +1006,18 @@ export class ReviewManager extends EventEmitter {
       return message;
     }
     const review = this.store.getReview(reviewId);
-    if ((review?.localReview || review?.source === 'local-worktree') && review.workspaceHead && review.workspaceHead !== this.store.getRound(reviewId, review.currentRound)?.headSha) throw new Error('本地文件已变化,请先增量复审再询问 agent；也可以仅保存批注');
     if (this.workspaceBusy.has(reviewId)) throw new Error('代码来源或同步操作正在进行中,请稍后再试');
+    const discussion = this.store.getDiscussion(discussionId);
+    if (!review || !discussion || discussion.reviewId !== reviewId) throw new Error('讨论不属于本次审核');
+    if (!text.trim()) throw new Error('问题内容不能为空');
+    if (review.localReview || review.source === 'local-worktree') {
+      if (this.sessions.get(reviewId)?.isBusy() || review.status === 'scanning') throw new Error('当前 agent 正在运行,请结束后再发起新对话');
+      const refreshed = await this.refreshLocal(reviewId);
+      if (refreshed.deferred) throw new Error('本地上下文正在更新,请稍后重试');
+      const current = this.store.getReview(reviewId)!;
+      const contextHead = this.chatHeads.has(reviewId) ? this.chatHeads.get(reviewId) : this.store.getRound(reviewId, current.currentRound)?.headSha;
+      if (this.sessions.has(reviewId) && current.workspaceHead !== contextHead) await this.teardown(reviewId);
+    }
     const session = this.sessions.get(reviewId) ?? (await this.resumeSession(reviewId));
     this.touch(reviewId);
     return session.sendMessage(discussionId, text);
@@ -1781,22 +1798,19 @@ export class ReviewManager extends EventEmitter {
   private async startResume(reviewId: string): Promise<ReviewSession> {
     const review = this.store.getReview(reviewId);
     if (!review) throw new Error(`review 不存在: ${reviewId}`);
-    if (!review.agentSessionId) throw new Error(`review 没有 agent 会话,无法续接: ${reviewId}`);
 
     const epoch = this.teardownEpoch(reviewId);
     const source = this.makeSource(targetOf(review, this.snapshotRoot));
     const prepared = await source.prepare();
-    if (review.localReview && prepared.headSha !== this.store.getRound(reviewId, review.currentRound)?.headSha) {
-      await source.dispose();
-      throw new Error('本地代码已不同于本轮审核快照,请先刷新本地并复审后继续追问');
-    }
-    const scanDiff = this.store.getRoundScanDiff(reviewId, review.currentRound);
+    const isLocal = review.localReview || review.source === 'local-worktree';
+    const scanDiff = isLocal ? null : this.store.getRoundScanDiff(reviewId, review.currentRound);
     let baseInstructions = await loadBaseInstructions({
       cwd: prepared.cwd,
       intensity: review.intensity,
       canSearch: !!source.searchCode,
     });
     if (scanDiff !== null) baseInstructions += `\n${INCREMENTAL_REVIEW_RULE}`;
+    if (isLocal) baseInstructions += '\n当前是用户主动发起的代码问答,以 MCP 提供的当前本地快照为准。旧 finding 和讨论锚点可能来自历史版本,请重新读取相关代码再回答；不要自动启动全量机审。';
     let session: ReviewSession;
     try {
       session = this.createSession(reviewId, () => source.dispose(), epoch);
@@ -1807,13 +1821,14 @@ export class ReviewManager extends EventEmitter {
     const providers = this.buildProviders(reviewId, source, () => scanDiff ?? source.getDiff());
     this.providers.set(reviewId, providers);
     try {
-      await session.resume({
+      await session.openChat({
         cwd: prepared.cwd,
         providers,
         baseInstructions,
         model: review.model,
         reasoningEffort: review.reasoningEffort,
       });
+      this.chatHeads.set(reviewId, prepared.headSha ?? null);
       // 续 thread 也是一段 await:期间被释放/删除的话,teardown 拆的是我们这个会话,
       // 但它拆完我们还在跑,收尾一律走下面的清理,别把一个已作废的会话交给追问。
       if (this.teardownEpoch(reviewId) !== epoch) throw new SessionReleasedError(reviewId);
@@ -1944,6 +1959,7 @@ export class ReviewManager extends EventEmitter {
     if (!session) return;
     this.sessions.delete(reviewId);
     this.providers.delete(reviewId);
+    this.chatHeads.delete(reviewId);
     const cleanup = this.cleanups.get(reviewId);
     this.cleanups.delete(reviewId);
     await session.dispose();

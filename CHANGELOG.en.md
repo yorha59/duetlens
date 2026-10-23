@@ -4,6 +4,11 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.23] - 2026-10-23
+
+- Saved reviewer remarks can be edited in place without invoking the agent or duplicating the thread.
+- Local questions can open a conversation before a scan or after code changes, using a fresh code snapshot without requiring re-review.
+
 ## [0.12.0-fork.22] - 2026-10-23
 
 - Sync detects direction automatically: confirm push when local is ahead, confirm pull when remote is ahead, or show already synced. No direction selector.

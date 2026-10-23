@@ -86,6 +86,7 @@ export const IpcChannels = {
   reviewDiscussions: 'review:discussions',
   reviewMessages: 'review:messages',
   reviewAddDiscussion: 'review:add-discussion',
+  reviewEditMessage: 'review:edit-message',
   reviewSendMessage: 'review:send-message',
   reviewClearDiscussion: 'review:clear-discussion',
   reviewProposals: 'review:proposals',
@@ -563,6 +564,7 @@ export interface DuetlensApi {
     addDiscussion(reviewId: string, anchor?: DiscussionAnchor | null): Promise<Discussion>;
     /** 就某条 discussion 向 agent 追问;返回 agent 回复(无文本时返回用户消息)。 */
     /** note 仅保存;agent（兼容缺省）才启动模型。 */
+    editMessage(reviewId: string, messageId: string, text: string, expectedText: string): Promise<Message>;
     sendMessage(reviewId: string, discussionId: string, text: string, mode?: 'note' | 'agent'): Promise<Message>;
     /** 清空一条 discussion 的往来消息(finding 卡保留);经 `messages-cleared` 事件回推。 */
     clearDiscussion(reviewId: string, discussionId: string): Promise<void>;

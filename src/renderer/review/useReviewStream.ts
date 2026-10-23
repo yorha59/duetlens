@@ -268,7 +268,12 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
           const m = e.payload;
           setMessages((prev) => {
             const bucket = prev[m.discussionId] ?? [];
-            if (bucket.some((x) => x.id === m.id)) return prev;
+            const existing = bucket.findIndex((x) => x.id === m.id);
+            if (existing >= 0) {
+              if (bucket[existing].text === m.text) return prev;
+              const updated = bucket.slice(); updated[existing] = m;
+              return { ...prev, [m.discussionId]: updated };
+            }
             // 权威 user 消息到达:替换掉同文本的乐观占位(pending-*),避免重复
             const cleaned =
               m.role === 'user'

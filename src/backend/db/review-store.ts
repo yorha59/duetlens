@@ -1373,6 +1373,18 @@ export class ReviewStore {
     return rows.map(toMessage);
   }
 
+  updateUserMessage(reviewId: string, messageId: string, text: string, expectedText: string): Message {
+    const row = this.db.prepare(`SELECT m.* FROM messages m JOIN discussions d ON d.id = m.discussion_id
+      WHERE m.id = ? AND d.review_id = ? AND m.role = 'user'`).get(messageId, reviewId) as MessageRow | undefined;
+    if (!row) throw new Error('批注不存在或不属于本次审核');
+    if (typeof text !== 'string' || !text.trim()) throw new Error('批注内容不能为空');
+    if (row.text !== expectedText) throw new Error('批注已被修改,请刷新后重试');
+    return this.withReviewTouch({ discussion: row.discussion_id }, () => {
+      this.db.prepare('UPDATE messages SET text = ? WHERE id = ?').run(text.trim(), messageId);
+      return toMessage({ ...row, text: text.trim() });
+    });
+  }
+
   /** 清空一条 discussion 的往来消息(discussion / finding 锚点保留),用于重开讨论。 */
   clearMessages(discussionId: string): void {
     this.withReviewTouch({ discussion: discussionId }, () => {

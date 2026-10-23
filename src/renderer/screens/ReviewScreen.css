@@ -5780,3 +5780,10 @@ body.rz-dragging * {
 
 .composer .ask-agent { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--card); color: var(--text-dim); font: 12px var(--sans); cursor: pointer; }
 .composer .ask-agent:disabled { opacity: .5; cursor: default; }
+
+.remark-edit-trigger { margin-left: auto; font-size: 11px; color: var(--text-dim); background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; padding: 2px 6px; }
+.remark-editor textarea { width: 100%; box-sizing: border-box; min-height: 90px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 8px; font: inherit; resize: vertical; }
+.remark-editor > div { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.remark-editor span { flex: 1; font-size: 11px; color: var(--text-faint); }
+.remark-editor button { font-size: 12px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; cursor: pointer; }
+.remark-editor p[role=alert] { color: var(--red); font-size: 12px; }

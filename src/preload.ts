@@ -68,6 +68,7 @@ const api: DuetlensApi = {
     delete: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewDelete, reviewId),
     addDiscussion: (reviewId, anchor) =>
       ipcRenderer.invoke(IpcChannels.reviewAddDiscussion, reviewId, anchor),
+    editMessage: (reviewId, messageId, text, expectedText) => ipcRenderer.invoke(IpcChannels.reviewEditMessage, reviewId, messageId, text, expectedText),
     sendMessage: (reviewId, discussionId, text, mode) =>
       ipcRenderer.invoke(IpcChannels.reviewSendMessage, reviewId, discussionId, text, mode),
     clearDiscussion: (reviewId, discussionId) =>

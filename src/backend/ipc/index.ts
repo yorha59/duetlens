@@ -273,6 +273,7 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   ipcMain.handle(IpcChannels.reviewAddDiscussion, (_e, reviewId: string, anchor?: DiscussionAnchor | null) =>
     manager.addUserDiscussion(reviewId, anchor),
   );
+  ipcMain.handle(IpcChannels.reviewEditMessage, (_e, reviewId: string, messageId: string, text: string, expectedText: string) => manager.editMessage(reviewId, messageId, text, expectedText));
   ipcMain.handle(IpcChannels.reviewSendMessage, (_e, reviewId: string, discussionId: string, text: string, mode?: 'note' | 'agent') =>
     manager.sendMessage(reviewId, discussionId, text, mode),
   );

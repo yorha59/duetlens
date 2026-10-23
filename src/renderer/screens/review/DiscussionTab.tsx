@@ -315,6 +315,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
                   role={it.msg.role}
                   name={it.msg.role === 'agent' ? 'agent' : 'reviewer'}
                   text={it.msg.text}
+                  onEdit={it.msg.role === 'user' && !it.msg.id.startsWith('pending-') ? async (text, expected) => window.duetlens.review.editMessage(active.reviewId, it.msg!.id, text, expected) : undefined}
                   proposals={proposalsByMessage.get(it.msg.id)}
                   findingOf={findingOf}
                   onApplyProposal={props.onApplyProposal}
@@ -452,7 +453,9 @@ function MessageBubble({
   onApplyProposal,
   onSkipProposal,
   onUndoProposal,
+  onEdit,
 }: {
+  onEdit?: (text: string, expectedText: string) => Promise<unknown>;
   role: 'agent' | 'user';
   name: string;
   meta?: string;
@@ -464,6 +467,18 @@ function MessageBubble({
   onSkipProposal?: (id: string) => Promise<unknown>;
   onUndoProposal?: (id: string) => Promise<unknown>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  const [original, setOriginal] = useState(text);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    if (saving || !draft.trim() || !onEdit) return;
+    setSaving(true); setError('');
+    try { await onEdit(draft, original); setEditing(false); }
+    catch (error) { setError(stripIpcWrapper((error as Error).message)); }
+    finally { setSaving(false); }
+  };
   return (
     <div className="msg">
       <span className={`av ${role}`}>{role === 'agent' ? '◆' : <UserGlyph />}</span>
@@ -472,9 +487,14 @@ function MessageBubble({
           <b className={role === 'agent' ? 'agent-name' : 'human-name'}>{name}</b>
           {meta && <span className="t mono">{meta}</span>}
           {role === 'agent' && text.trim() && <CopyButton text={text} />}
+          {onEdit && !editing && <button className="remark-edit-trigger" type="button" onClick={() => { setDraft(text); setOriginal(text); setError(''); setEditing(true); }}>编辑</button>}
         </div>
         <div className={`bubble${role === 'agent' ? ' agent' : ''}`}>
-          <div className="c-prose">{renderMarkdown(text)}</div>
+          {editing ? <div className="remark-editor">
+            <textarea autoFocus aria-label="编辑批注" value={draft} disabled={saving} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); if (!saving) setEditing(false); } if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); } }} />
+            {error && <p role="alert">{error}</p>}
+            <div><span>只修改批注,不调用 agent</span><button type="button" disabled={saving} onClick={() => setEditing(false)}>取消</button><button type="button" disabled={saving || !draft.trim()} onClick={() => void save()}>{saving ? '保存中…' : '保存修改'}</button></div>
+          </div> : <div className="c-prose">{renderMarkdown(text)}</div>}
         </div>
         {proposals?.map((p) => (
           <ProposalCard

@@ -1253,6 +1253,7 @@ export function installPreviewApi(): void {
        * 走完整条在途气泡的四个阶段:排队 → 起跑取证 → 逐段出字 → 落定。
        * `?reply=fail|stop` 分别自查中断态(残文定格)与「停止」按钮。
        */
+      editMessage: async (_reviewId, messageId, text) => ({ id: messageId, discussionId: 'preview', role: 'user', text, createdAt: Date.now() }),
       sendMessage: async (_r, discussionId, text, messageMode) => {
         const userMsg: Message = {
           id: `m-${Date.now()}-u`,
