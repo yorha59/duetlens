@@ -961,6 +961,7 @@ export function installPreviewApi(): void {
     codexBinding: async () => null,
     bindCodex: async (_id, binding) => binding,
     addToCodex: async () => ({ snapshot: false, copiedOnly: false, message: '预览：选区已添加到待发送区' }),
+    addCommentToCodex: async () => ({ text: '', selections: [] }),
     connectCodexChat: async () => ({ state: { threadId: 'preview', connection: 'connected', title: '预览对话', busy: false, activity: '', messages: [] }, draft: { text: '', selections: [] } }),
     disconnectCodexChat: async () => {},
     saveCodexChatDraft: async (_id, text) => ({ text, selections: [] }),

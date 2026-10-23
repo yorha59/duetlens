@@ -1382,6 +1382,11 @@ function ReviewPane({
             onCommit={(w) => update({ rightWidth: w })}
           />
           <RightPanel
+            onAddCommentToCodex={async (input) => {
+              if (!codexBinding) { setCodexBindingOpen(true); throw new Error('请先绑定 Codex 对话,再添加评论'); }
+              await window.duetlens.review.addCommentToCodex(reviewId, input);
+              setTab('codex');
+            }}
             codexChat={<CodexChatPane key={`${reviewId}:${codexBinding?.threadId ?? ''}`} reviewId={reviewId} binding={codexBinding} active={tab === 'codex'} onBind={() => setCodexBindingOpen(true)} />}
             tab={tab}
             onTab={setTab}
@@ -1468,6 +1473,7 @@ const SEV_ORDER: Severity[] = ['high', 'medium', 'low'];
 const SEV_LABEL: Record<Severity, string> = { high: 'High', medium: 'Med', low: 'Low' };
 
 function RightPanel({
+  onAddCommentToCodex,
   codexChat,
   tab,
   onTab,
@@ -1517,6 +1523,7 @@ function RightPanel({
   onPickCategory,
   onOpenFile,
 }: {
+  onAddCommentToCodex: (input: import('@shared/remote-comments').RemoteCommentContext) => Promise<void>;
   codexChat: ReactNode;
   tab: RightTab;
   onTab: (t: RightTab) => void;
@@ -1663,7 +1670,7 @@ function RightPanel({
       </div>
 
       {codexChat}
-      {tab === 'github' && review?.source === 'github-pr' && !review.localReview && <RemoteCommentsPane reviewId={review.id} onFile={onOpenFile} />}
+      {tab === 'github' && review?.source === 'github-pr' && !review.localReview && <RemoteCommentsPane reviewId={review.id} onFile={onOpenFile} onAdd={onAddCommentToCodex} />}
       {tab === 'findings' && (
         <div className="tab-body">
           {/* 列表里已经有东西时(重跑必然如此,首轮也在第一条报出后如此),整屏空态的镜片画面

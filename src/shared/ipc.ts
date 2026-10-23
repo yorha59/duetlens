@@ -52,6 +52,7 @@ export const IpcChannels = {
   codexBindingGet: 'codex:binding-get',
   codexBindingSet: 'codex:binding-set',
   codexAddSelection: 'codex:add-selection',
+  codexAddComment: 'codex:add-comment',
   codexChatConnect: 'codex:chat-connect',
   codexChatDisconnect: 'codex:chat-disconnect',
   codexChatDraft: 'codex:chat-draft',
@@ -491,6 +492,7 @@ export interface DuetlensApi {
     codexBinding(reviewId: string): Promise<CodexBinding | null>;
     bindCodex(reviewId: string, binding: CodexBinding | null): Promise<CodexBinding | null>;
     addToCodex(reviewId: string, selection: CodexSelection): Promise<CodexHandoffResult>;
+    addCommentToCodex(reviewId: string, input: import('./remote-comments').RemoteCommentContext): Promise<CodexChatDraft>;
     connectCodexChat(reviewId: string): Promise<{ state: CodexChatState; draft: CodexChatDraft }>;
     disconnectCodexChat(reviewId: string): Promise<void>;
     saveCodexChatDraft(reviewId: string, text: string, removeSelectionIds?: string[]): Promise<CodexChatDraft>;

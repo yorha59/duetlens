@@ -15,3 +15,5 @@
 .remote-comment pre { max-width: 100%; overflow: auto; }
 .remote-comments .remote-comments-error { color: var(--red); padding: 8px 12px; font-size: 12px; }
 .right > .tabs { overflow-x: auto; flex-shrink: 0; }
+
+.remote-comment-actions { display: flex; justify-content: flex-end; margin-top: 8px; }

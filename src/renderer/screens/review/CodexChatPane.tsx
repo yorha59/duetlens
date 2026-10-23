@@ -104,17 +104,17 @@ export function CodexChatPane({ reviewId, binding, active, onBind }: { reviewId:
     {state?.activity && <div className="codex-chat-activity" role="status">{state.activity}</div>}
     {(error || state?.error) && <div className="codex-chat-error" role="alert">{error || state?.error}</div>}
     <div className="codex-chat-compose">
-      {draft.selections.length > 0 && <div className="codex-chat-selections" aria-label="待发送选区">
-        <div className="codex-chat-selections-label">{draft.selections.length} 个选区 · 待发送</div>
+      {draft.selections.length > 0 && <div className="codex-chat-selections" aria-label="待发送上下文">
+        <div className="codex-chat-selections-label">{draft.selections.length} 项上下文 · 待发送</div>
         {draft.selections.map(selection => <div className="codex-chat-selection" key={selection.id}>
-          <details><summary title={selection.file}>{selection.file.split('/').at(-1)}:{selection.line}–{selection.lineEnd ?? selection.line}{selection.side === 'old' ? ' · 删除侧' : ''}{selection.snapshot ? ' · 审核快照' : ''}</summary><pre>{selection.text}</pre>{selection.previewTruncated && <small>预览已截断,发送时包含完整选区。</small>}</details>
-          <button type="button" aria-label={`移除选区 ${selection.file}`} disabled={sending} onClick={() => {
+          <details><summary title={selection.file}>{selection.kind === 'comment' ? `GitHub 评论 · ${selection.label}` : <>{selection.file.split('/').at(-1)}:{selection.line}–{selection.lineEnd ?? selection.line}{selection.side === 'old' ? ' · 删除侧' : ''}{selection.snapshot ? ' · 审核快照' : ''}</>}</summary><pre>{selection.text}</pre>{selection.previewTruncated && <small>预览已截断,发送时包含完整上下文。</small>}</details>
+          <button type="button" aria-label={`移除上下文 ${selection.label ?? selection.file}`} disabled={sending} onClick={() => {
             requestId.current = crypto.randomUUID();
             void window.duetlens.review.saveCodexChatDraft(reviewId, text.current, [selection.id]).then(result => setDraft(current => ({ ...current, selections: result.selections }))).catch((e: Error) => setError(e.message));
           }}>×</button>
         </div>)}
       </div>}
-      <textarea ref={input} aria-label="发送给绑定 Codex 会话的消息" value={draft.text} maxLength={60000} disabled={sending || !loaded} placeholder="输入消息,或从左侧选中代码添加到这里…" onChange={event => {
+      <textarea ref={input} aria-label="发送给绑定 Codex 会话的消息" value={draft.text} maxLength={60000} disabled={sending || !loaded} placeholder="输入消息,或添加代码选区、GitHub 评论…" onChange={event => {
         text.current = event.target.value; dirty.current = true; requestId.current = crypto.randomUUID();
         setDraft(current => ({ ...current, text: event.target.value }));
         clearTimeout(timer.current); timer.current = setTimeout(() => void persist().catch(() => {}), 300);

@@ -10,7 +10,7 @@ export interface CodexChatState {
   messages: CodexChatMessage[];
   error?: string;
 }
-export interface CodexChatSelection extends CodexSelection { id: string; context: string; snapshot: boolean; previewTruncated?: boolean }
+export interface CodexChatSelection extends CodexSelection { id: string; context: string; snapshot: boolean; previewTruncated?: boolean; kind?: 'comment'; label?: string; commentKey?: string }
 export interface CodexChatDraft { text: string; selections: CodexChatSelection[] }
 export interface CodexChatSend { text: string; selectionIds: string[]; requestId: string }
 export type CodexChatEvent = { kind: 'state'; threadId: string; state: CodexChatState }

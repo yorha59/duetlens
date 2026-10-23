@@ -5,6 +5,7 @@ import type { CodexChatDraft, CodexChatSend, CodexChatState } from '@shared/code
 import { DesktopChat } from '../codex/desktop-chat';
 import type { CodexBinding, CodexSelection } from '@shared/codex-handoff';
 import { prepareCodexHandoff } from '../codex/selection-handoff';
+import { prepareRemoteComment } from '../codex/remote-comment-context';
 import { app, clipboard, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
@@ -123,6 +124,23 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   app.once('before-quit', () => { for (const release of [...subscriptions.values()]) release(); for (const entry of chats.values()) entry.chat.stop(); chats.clear(); });
   ipcMain.handle(IpcChannels.codexBindingGet, (_event, id: string) => manager.getCodexBinding(id));
   ipcMain.handle(IpcChannels.codexBindingSet, (_event, id: string, binding: CodexBinding | null) => manager.setCodexBinding(id, binding));
+  ipcMain.handle(IpcChannels.codexAddComment, async (_event, id: string, input: unknown) => {
+    const threadId = boundThread(id);
+    const review = await manager.getReview(id);
+    if (!review) throw new Error('审核任务不存在');
+    // 等待读取后重新确认绑定,避免把内容写到已解绑的对话。
+    if (boundThread(id) !== threadId) throw new Error('Codex 绑定已更换,请重新添加');
+    const attachment = prepareRemoteComment(review, input);
+    const draft = manager.getCodexChatDraft(threadId);
+    const index = draft.selections.findIndex(item => item.commentKey === attachment.commentKey);
+    if (index < 0 && draft.selections.length >= 20) throw new Error('一次最多添加 20 项上下文,请先发送或移除部分内容');
+    if (index < 0) draft.selections.push(attachment);
+    // 内容有变化时保留新 ID,避免此前正在发送的旧版本回执移除新内容。
+    else if (draft.selections[index].context !== attachment.context) draft.selections[index] = attachment;
+    if (Buffer.byteLength(draft.selections.map(item => item.context).join('')) > 1800000) throw new Error('上下文内容过大,请先发送或移除部分内容');
+    manager.saveCodexChatDraft(threadId, draft);
+    return publishDraft(threadId);
+  });
   ipcMain.handle(IpcChannels.codexAddSelection, async (_event, id: string, selection: CodexSelection) => {
     const review = await manager.getReview(id);
     const binding = manager.getCodexBinding(id);

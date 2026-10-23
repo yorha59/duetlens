@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.25] - 2026-10-23
+
+- Add GitHub comments and replies to the bound Codex conversation draft with full discussion, file/line, and PR revision context. Existing drafts are preserved, repeated additions update the same comment, and the agent runs only after sending.
+
 ## [0.12.0-fork.24] - 2026-10-23
 
 - Remote review views show GitHub inline threads and replies, PR comments, and review summaries with resolved/outdated status, manual refresh, and file navigation. Fetches all pages and reports read failures explicitly.

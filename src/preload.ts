@@ -33,6 +33,7 @@ const api: DuetlensApi = {
     codexBinding: (id) => ipcRenderer.invoke(IpcChannels.codexBindingGet, id),
     bindCodex: (id, binding) => ipcRenderer.invoke(IpcChannels.codexBindingSet, id, binding),
     addToCodex: (id, selection) => ipcRenderer.invoke(IpcChannels.codexAddSelection, id, selection),
+    addCommentToCodex: (id, input) => ipcRenderer.invoke(IpcChannels.codexAddComment, id, input),
     connectCodexChat: (id) => ipcRenderer.invoke(IpcChannels.codexChatConnect, id),
     disconnectCodexChat: (id) => ipcRenderer.invoke(IpcChannels.codexChatDisconnect, id),
     saveCodexChatDraft: (id, text, remove) => ipcRenderer.invoke(IpcChannels.codexChatDraft, id, text, remove),
