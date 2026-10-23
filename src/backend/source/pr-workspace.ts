@@ -1,12 +1,10 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { Review } from '@shared/domain';
-import type { CodeSyncPlan, CodeSyncResult } from '@shared/ipc';
+import type { CodeSyncDirection, CodeSyncResult } from '@shared/ipc';
 import { resolveTool } from '../config/tool-paths';
 import { resolvePrRef } from './github-pr-source';
-import { LocalWorktreeSource } from './local-worktree-source';
 
 const exec = promisify(execFile);
 export type WorkspaceRun = (cmd: string, args: string[], cwd?: string) => Promise<string>;
@@ -133,7 +131,7 @@ export class PrWorkspace {
       return { pending: false };
     } catch (error) {
       if ((error as { code?: number }).code === 1) return { pending: true };
-      throw new Error('无法比较本地代码和远端版本,请先预览同步或更新本地远端提交');
+      throw new Error('无法比较本地代码和远端版本,请先拉取远端提交');
     }
   }
 
@@ -145,63 +143,41 @@ export class PrWorkspace {
     if (tree !== reviewedTree) throw new Error('本地审核快照与已推送代码不同,请先复审当前本地改动');
   }
 
-  async plan(review: Review): Promise<CodeSyncPlan> {
-    return (await this.preparePlan(review)).public;
-  }
-
-  private async preparePlan(review: Review) {
-    if (!review.localReview || !review.repoPath) throw new Error('请先切到关联的本地代码进行审核');
-    const info = await this.inspect(review, review.repoPath, true);
+  /** 同步只传输已有提交,不创建提交、不暂存文件,拉取只允许快进。 */
+  async syncCode(review: Review, direction: CodeSyncDirection): Promise<CodeSyncResult> {
+    if (direction !== 'push' && direction !== 'pull') throw new Error('请选择拉取或推送');
+    if (!review.localReview || !review.repoPath) throw new Error('请先关联本地代码仓库');
+    const info = await this.inspect(review, review.repoPath);
     const git = (args: string[]) => this.run('git', args, info.repoPath);
-    const head = (await git(['rev-parse', 'HEAD'])).trim();
-    const liveRemote = (await git(['ls-remote', '--exit-code', info.remoteUrl, `refs/heads/${info.pr.head.ref}`])).split(/\s/)[0];
-    if (liveRemote !== info.pr.head.sha) throw new Error('PR 分支刚有更新,请刷新后重新预览同步');
-    // 快照同时覆盖暂存、未暂存及未忽略的新文件;原工作区与 index 不受影响。
-    const snapshot = new LocalWorktreeSource({ source: 'local-worktree', ref: '', repoPath: info.repoPath });
-    let tree: string;
-    try { tree = (await snapshot.prepare()).headSha!; }
-    finally { await snapshot.dispose(); }
-    const index = await git(['ls-files', '--stage', '-z']);
-    const paths = await git(['diff', '--no-ext-diff', '--name-only', '-z', 'HEAD', '--']);
-    const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z']);
-    const files = [...new Set((paths + untracked).split('\0').filter(Boolean))].sort();
-    const commitsAhead = Number((await git(['rev-list', '--count', `${liveRemote}..HEAD`])).trim());
-    const token = createHash('sha256').update(JSON.stringify([review.id, info.repoPath, info.remoteUrl, info.branch, head, tree, index, liveRemote])).digest('hex');
-    return {
-      info, head, tree, git,
-      public: { token, branch: info.pr.head.ref, repository: info.nwo, files, commitsAhead },
+    const checkBranch = async () => {
+      const branch = (await git(['branch', '--show-current'])).trim();
+      if (branch !== info.pr.head.ref) throw new Error(`请先切到 PR 来源分支 ${info.pr.head.ref}（当前: ${branch || 'detached HEAD'}）`);
+      if ((await git(['ls-files', '--unmerged', '-z'])).length) throw new Error('本地仍有未解决的合并冲突');
     };
-  }
-
-  async push(review: Review, token: string, message: string): Promise<CodeSyncResult> {
-    const plan = await this.preparePlan(review);
-    if (!token || token !== plan.public.token) throw new Error('本地代码、暂存区或远端分支已变化,请重新预览同步');
-    if (!plan.public.files.length && !plan.public.commitsAhead) throw new Error('没有需要同步的本地改动或提交');
-    let commit = plan.head;
-    if (plan.public.files.length) {
-      if (!message.trim()) throw new Error('请输入提交信息');
-      // 用户已看过整份文件清单。使用正常 Git 提交流程,保留 hooks 与签名配置。
-      await plan.git(['add', '--all', '--']);
-      if ((await plan.git(['write-tree'])).trim() !== plan.tree) throw new Error('预览后文件又有变化,已暂存但尚未提交,请重新预览');
-      if ((await plan.git(['rev-parse', 'HEAD'])).trim() !== plan.head || (await plan.git(['branch', '--show-current'])).trim() !== plan.info.branch) {
-        throw new Error('提交前 HEAD 或分支发生变化,尚未提交,请重新预览');
+    await checkBranch();
+    const head = (await git(['rev-parse', 'HEAD'])).trim();
+    const remote = (await git(['ls-remote', '--exit-code', info.remoteUrl, `refs/heads/${info.pr.head.ref}`])).split(/\s/)[0];
+    if (!/^[a-f0-9]{40}$/i.test(remote)) throw new Error('远端分支的提交标识无效');
+    // 按确定的提交取对象,不依赖会被其他 Git 操作改写的 FETCH_HEAD。
+    await git(['fetch', '--no-tags', '--', info.remoteUrl, remote]);
+    await checkBranch();
+    if ((await git(['rev-parse', 'HEAD'])).trim() !== head) throw new Error('同步期间本地提交已变化,请重试');
+    let commit = head;
+    if (direction === 'push') {
+      try { await git(['merge-base', '--is-ancestor', remote, head]); }
+      catch { throw new Error('本地分支落后或已分叉,请先拉取或在编辑器中整合提交'); }
+      await git(['push', '--porcelain', '--', info.remoteUrl, `${head}:refs/heads/${info.pr.head.ref}`]);
+    } else {
+      if ((await git(['status', '--porcelain=v1', '-z'])).length) throw new Error('本地有未提交改动,请先提交或自行 stash 后再拉取');
+      try { await git(['merge-base', '--is-ancestor', head, remote]); }
+      catch {
+        // 本地已包含远端时无需移动 HEAD;真正分叉才拒绝自动整合。
+        try { await git(['merge-base', '--is-ancestor', remote, head]); return { commit: remote, prUrl: info.pr.html_url }; }
+        catch { throw new Error('本地和远端分支已分叉,请在编辑器中整合提交后重试'); }
       }
-      await plan.git(['commit', '-m', message.trim()]);
-      commit = (await plan.git(['rev-parse', 'HEAD'])).trim();
+      await git(['merge', '--ff-only', '--no-edit', '--no-autostash', remote]);
+      commit = (await git(['rev-parse', 'HEAD'])).trim();
     }
-    if ((await plan.git(['rev-parse', `${commit}^{tree}`])).trim() !== plan.tree) {
-      throw new Error(`提交 ${commit.slice(0, 7)} 被 Git hook 修改,尚未推送,请检查并重新预览`);
-    }
-    if ((await plan.git(['status', '--porcelain=v1', '-z'])).length) {
-      throw new Error('本地提交已保留,但提交期间工作区又有改动;尚未推送,请检查后重新预览');
-    }
-    try {
-      // 明确推送已确认的 commit 到原 PR 分支,只允许普通快进;绝不 force/reset/checkout。
-      await plan.git(['push', '--porcelain', '--', plan.info.remoteUrl, `${commit}:refs/heads/${plan.info.pr.head.ref}`]);
-    } catch (error) {
-      const detail = (error as { stderr?: string }).stderr?.trim() || '请检查网络、推送权限或远端分支是否更新';
-      throw new Error(`推送失败,提交 ${commit.slice(0, 7)} 仍保留在本地: ${detail}`);
-    }
-    return { commit, prUrl: plan.info.pr.html_url };
+    return { commit, prUrl: info.pr.html_url };
   }
 }

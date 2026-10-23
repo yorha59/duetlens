@@ -85,8 +85,8 @@ async function main() {
     assert.equal(store.listMessages(localFinding.discussionId)[0].text, 'local thread');
     store.setReviewStatus(localId, 'reviewing');
     await assert.rejects(manager.applyLocal(remote.id), /先将本地代码同步/);
-    const plan = await manager.syncPlan(localId);
-    const pushed = await manager.syncPush(localId, plan.token, 'sync local');
+    await git(repo, 'add', '.'); await git(repo, 'commit', '-qm', 'local changes');
+    const pushed = await manager.syncCode(localId, 'push');
     assert.equal((await manager.workspaceState(remote.id)).syncedCommit, pushed.commit);
     assert.equal((await manager.syncStatus(remote.id)).pending, false);
     // 审核内容不匹配时,同步成功也不能误把旧结论用于新代码。

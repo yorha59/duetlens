@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.21] - 2026-10-23
+
+- Sync now asks whether to pull or push, then executes after confirmation. Push sends existing commits without staging or creating commits; pull fast-forwards the PR branch.
+
 ## [0.12.0-fork.20] - 2026-10-22
 
 - Toolbar actions use whole-button pointer dragging for pinning, unpinning, and reordering without triggering clicks. Removed menu grips, pin controls, and Collapse all.

@@ -31,3 +31,11 @@
 .workspace-toggle button { white-space: nowrap; }
 
 .workspace-sync-cta[data-state="synced"] { color: var(--green); }
+
+.rerun-panel.code-sync-panel { width: min(480px, calc(100vw - 48px)); }
+.code-sync-options { display: flex; flex-direction: column; gap: 10px; margin: 18px 0; }
+.code-sync-options button { text-align: left; padding: 14px !important; }
+.code-sync-options button[aria-pressed=true] { border-color: var(--agent-2); background: var(--agent-soft); }
+.code-sync-options b, .code-sync-options span { display: block; }
+.code-sync-options span { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-top: 6px; }
+.code-sync-footer { display: flex; justify-content: flex-end; gap: 10px; }

@@ -982,8 +982,7 @@ export function installPreviewApi(): void {
       syncStatus: async () => ({ pending: !!localReview && !workspaceSynced }),
       applyLocal: async () => { review = { ...review, summaryBody: localReview?.summaryBody ?? '本地审核结论' }; return review; },
       attachWorkspace: async (_id, repoPath) => { review = { ...review, repoPath }; fire({ reviewId: review.id, type: 'review', payload: review }); return review; },
-      syncPlan: async () => ({ token: 'preview', branch: 'feat/streaming-transcode', repository: 'example/podcast-go', files: ['src/pipeline.ts'], commitsAhead: 1 }),
-      syncPush: async () => { workspaceSynced = true; return { commit: 'abcdef1234567890', prUrl: 'https://github.com/example/podcast-go/pull/1' }; },
+      syncCode: async () => { workspaceSynced = true; return { commit: 'abcdef1234567890', prUrl: 'https://github.com/example/podcast-go/pull/1' }; },
       list: async () => [review],
       listRecent: async () => (params.has('empty') ? [] : RECENT_REVIEWS),
       // ?review=error 模拟读库失败,自查依赖它的屏不会卡在加载态

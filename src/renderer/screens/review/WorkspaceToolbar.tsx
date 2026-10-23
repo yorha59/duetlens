@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Review } from '@shared/domain';
 import type { WorkspaceState, WorkspaceSyncStatus } from '@shared/ipc';
+import { CodeSyncPanel } from './CodeSyncPanel';
 import { WorkspacePanel } from './WorkspacePanel';
 import './WorkspacePanel.css';
 
@@ -12,10 +13,11 @@ export function WorkspaceToolbar({ review, state, onChange, onModalChange, onApp
   review: Review; state: WorkspaceState | null; onChange: (state: WorkspaceState) => void; onModalChange: (open: boolean) => void; onApplied: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sync, setSync] = useState<WorkspaceSyncStatus | null>(null);
-  useEffect(() => { onModalChange(open); return () => onModalChange(false); }, [open, onModalChange]);
+  useEffect(() => { onModalChange(open || syncOpen); return () => onModalChange(false); }, [open, syncOpen, onModalChange]);
   const refresh = useRef<() => void>(() => {});
   useEffect(() => {
     let alive = true;
@@ -49,9 +51,10 @@ export function WorkspaceToolbar({ review, state, onChange, onModalChange, onApp
     </div>
   </>;
   const repository = <button className="rerun-cta" type="button" onClick={() => setOpen(true)}>仓库设置</button>;
-  const syncAction = state?.localId && <button className="rerun-cta workspace-sync-cta" data-state={sync && !sync.error && !sync.pending ? 'synced' : 'pending'} type="button" title={sync?.error ?? (sync?.pending ? '本地代码与原 PR 有差异,点击预览同步' : sync ? '本地代码内容与原 PR 一致' : '正在比较本地与远端代码')} onClick={() => setOpen(true)}>{!sync ? '检查同步中…' : sync.error ? '同步检查失败' : sync.pending ? '有改动，需同步' : '已同步'}</button>;
+  const syncAction = state?.localId && <button className="rerun-cta workspace-sync-cta" data-state={sync && !sync.error && !sync.pending ? 'synced' : 'pending'} type="button" title={sync?.error ?? (sync?.pending ? '本地代码与原 PR 有差异,点击选择拉取或推送' : sync ? '本地代码内容与原 PR 一致' : '正在比较本地与远端代码')} onClick={() => setSyncOpen(true)}>{!sync ? '检查同步中…' : sync.error ? '同步检查失败' : sync.pending ? '有改动，需同步' : '已同步'}</button>;
   return <>
     {renderActions ? renderActions(source, repository, syncAction) : <>{source}{repository}{syncAction}</>}
-    {open && <WorkspacePanel review={review} state={state} onApplied={onApplied} initialError={sync?.error ?? error} onChange={(next) => { onChange(next); refresh.current(); }} onClose={() => { setOpen(false); refresh.current(); }} />}
+    {syncOpen && state?.localId && <CodeSyncPanel review={review} state={state} onChange={onChange} onClose={() => { setSyncOpen(false); refresh.current(); }} />}
+    {open && <WorkspacePanel onSync={() => { setOpen(false); setSyncOpen(true); }} review={review} state={state} onApplied={onApplied} initialError={sync?.error ?? error} onChange={(next) => { onChange(next); refresh.current(); }} onClose={() => { setOpen(false); refresh.current(); }} />}
   </>;
 }

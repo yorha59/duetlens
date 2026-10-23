@@ -409,22 +409,17 @@ export class ReviewManager extends EventEmitter {
     } finally { this.workspaceBusy.delete(reviewId); }
   }
 
-  async syncPlan(reviewId: string) {
-    const review = this.assertWorkspaceIdle(reviewId);
-    this.workspaceBusy.add(reviewId);
-    try { return await this.prWorkspace.plan(review); }
-    finally { this.workspaceBusy.delete(reviewId); }
-  }
-
-  async syncPush(reviewId: string, token: string, message: string) {
-    const review = this.assertWorkspaceIdle(reviewId);
-    this.workspaceBusy.add(reviewId);
+  async syncCode(reviewId: string, direction: import('@shared/ipc').CodeSyncDirection) {
+    const state = this.store.getWorkspaceState(reviewId);
+    if (!state.localId) throw new Error('请先关联本地代码仓库');
+    const review = this.assertWorkspaceIdle(state.localId);
+    this.assertWorkspaceIdle(state.remoteId);
+    this.workspaceBusy.add(state.localId); this.workspaceBusy.add(state.remoteId);
     try {
-      const result = await this.prWorkspace.push(review, token, message);
-      this.store.setSyncedCommit(reviewId, result.commit);
+      const result = await this.prWorkspace.syncCode(review, direction);
+      this.store.setSyncedCommit(review.id, result.commit);
       return result;
-    }
-    finally { this.workspaceBusy.delete(reviewId); }
+    } finally { this.workspaceBusy.delete(state.localId); this.workspaceBusy.delete(state.remoteId); }
   }
 
   /** pi 的装配参数;缺省时选 pi 的 review 起不来(spike 只测 codex 那条时不必给)。 */
