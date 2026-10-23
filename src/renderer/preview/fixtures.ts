@@ -982,6 +982,7 @@ export function installPreviewApi(): void {
       syncStatus: async () => ({ pending: !!localReview && !workspaceSynced }),
       applyLocal: async () => { review = { ...review, summaryBody: localReview?.summaryBody ?? '本地审核结论' }; return review; },
       attachWorkspace: async (_id, repoPath) => { review = { ...review, repoPath }; fire({ reviewId: review.id, type: 'review', payload: review }); return review; },
+      syncPreview: async () => ({ direction: 'push', ahead: 1, behind: 0, dirty: false, branch: 'feat/streaming-transcode', repository: 'example/podcast-go' }),
       syncCode: async () => { workspaceSynced = true; return { commit: 'abcdef1234567890', prUrl: 'https://github.com/example/podcast-go/pull/1' }; },
       list: async () => [review],
       listRecent: async () => (params.has('empty') ? [] : RECENT_REVIEWS),

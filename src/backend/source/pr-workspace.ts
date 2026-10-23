@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { Review } from '@shared/domain';
-import type { CodeSyncDirection, CodeSyncResult } from '@shared/ipc';
+import type { CodeSyncDirection, CodeSyncResult, CodeSyncPreview } from '@shared/ipc';
 import { resolveTool } from '../config/tool-paths';
 import { resolvePrRef } from './github-pr-source';
 
@@ -143,9 +143,7 @@ export class PrWorkspace {
     if (tree !== reviewedTree) throw new Error('本地审核快照与已推送代码不同,请先复审当前本地改动');
   }
 
-  /** 同步只传输已有提交,不创建提交、不暂存文件,拉取只允许快进。 */
-  async syncCode(review: Review, direction: CodeSyncDirection): Promise<CodeSyncResult> {
-    if (direction !== 'push' && direction !== 'pull') throw new Error('请选择拉取或推送');
+  private async syncContext(review: Review) {
     if (!review.localReview || !review.repoPath) throw new Error('请先关联本地代码仓库');
     const info = await this.inspect(review, review.repoPath);
     const git = (args: string[]) => this.run('git', args, info.repoPath);
@@ -162,6 +160,20 @@ export class PrWorkspace {
     await git(['fetch', '--no-tags', '--', info.remoteUrl, remote]);
     await checkBranch();
     if ((await git(['rev-parse', 'HEAD'])).trim() !== head) throw new Error('同步期间本地提交已变化,请重试');
+    return { info, git, head, remote };
+  }
+
+  async syncPreview(review: Review): Promise<CodeSyncPreview> {
+    const { info, git, head, remote } = await this.syncContext(review);
+    const [ahead, behind] = (await git(['rev-list', '--left-right', '--count', `${head}...${remote}`])).trim().split(/\s/).map(Number);
+    const dirty = !!(await git(['--no-optional-locks', 'status', '--porcelain=v1', '-z'])).length;
+    return { direction: ahead && !behind ? 'push' : behind && !ahead ? 'pull' : null, ahead, behind, dirty, branch: info.pr.head.ref, repository: info.nwo };
+  }
+
+  /** 同步只传输已有提交,不创建提交、不暂存文件,拉取只允许快进。 */
+  async syncCode(review: Review, direction: CodeSyncDirection): Promise<CodeSyncResult> {
+    if (direction !== 'push' && direction !== 'pull') throw new Error('同步方向无效');
+    const { info, git, head, remote } = await this.syncContext(review);
     let commit = head;
     if (direction === 'push') {
       try { await git(['merge-base', '--is-ancestor', remote, head]); }

@@ -409,6 +409,15 @@ export class ReviewManager extends EventEmitter {
     } finally { this.workspaceBusy.delete(reviewId); }
   }
 
+  async syncPreview(reviewId: string) {
+    const state = this.store.getWorkspaceState(reviewId);
+    if (!state.localId) throw new Error('请先关联本地代码仓库');
+    const local = this.assertWorkspaceIdle(state.localId);
+    this.workspaceBusy.add(local.id);
+    try { return await this.prWorkspace.syncPreview(local); }
+    finally { this.workspaceBusy.delete(local.id); }
+  }
+
   async syncCode(reviewId: string, direction: import('@shared/ipc').CodeSyncDirection) {
     const state = this.store.getWorkspaceState(reviewId);
     if (!state.localId) throw new Error('请先关联本地代码仓库');

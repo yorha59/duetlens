@@ -50,6 +50,7 @@ const api: DuetlensApi = {
     syncStatus: (id) => ipcRenderer.invoke(IpcChannels.reviewSyncStatus, id),
     applyLocal: (id) => ipcRenderer.invoke(IpcChannels.reviewApplyLocal, id),
     attachWorkspace: (reviewId, repoPath) => ipcRenderer.invoke(IpcChannels.reviewAttachWorkspace, reviewId, repoPath),
+    syncPreview: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewSyncPreview, reviewId),
     syncCode: (reviewId, direction) => ipcRenderer.invoke(IpcChannels.reviewSyncCode, reviewId, direction),
     rerun: (reviewId, input) => ipcRenderer.invoke(IpcChannels.reviewRerun, reviewId, input),
     retryRound: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewRetryRound, reviewId),

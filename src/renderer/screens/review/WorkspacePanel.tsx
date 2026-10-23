@@ -37,7 +37,7 @@ export function WorkspacePanel({ review, state, initialError, onChange, onClose,
       </>}
       {state?.localId && <p>关联仓库：<span className="mono">{directory}</span></p>}
       <hr /><h3>同步代码</h3>
-      <p>选择推送本地提交或拉取远端提交,确认后执行。</p>
+      <p>自动判断拉取或推送,确认后执行。</p>
       <button type="button" disabled={!!busy || !state?.localId} onClick={onSync}>同步代码…</button>
       {synced && <div className="workspace-apply"><h3>应用本地审核结论</h3>
         <p>以本地 findings 和总结覆盖远端侧结论。远端原有讨论保留，旧问题归档为剔除。本地审核代码必须与已推送代码一致。</p>

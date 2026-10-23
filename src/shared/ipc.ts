@@ -69,6 +69,7 @@ export const IpcChannels = {
   reviewSyncStatus: 'review:sync-status',
   reviewApplyLocal: 'review:apply-local',
   reviewAttachWorkspace: 'review:attach-workspace',
+  reviewSyncPreview: 'review:sync-preview',
   reviewSyncCode: 'review:sync-code',
   reviewRetryRound: 'review:retry-round',
   reviewStopScan: 'review:stop-scan',
@@ -190,6 +191,14 @@ export interface WorkspaceSyncStatus {
 }
 
 export type CodeSyncDirection = 'push' | 'pull';
+export interface CodeSyncPreview {
+  direction: CodeSyncDirection | null;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  repository: string;
+  branch: string;
+}
 
 export interface CodeSyncResult {
   commit: string;
@@ -509,6 +518,7 @@ export interface DuetlensApi {
     syncStatus(reviewId: string): Promise<WorkspaceSyncStatus>;
     applyLocal(reviewId: string): Promise<Review>;
     attachWorkspace(reviewId: string, repoPath: string): Promise<Review>;
+    syncPreview(reviewId: string): Promise<CodeSyncPreview>;
     syncCode(reviewId: string, direction: CodeSyncDirection): Promise<CodeSyncResult>;
     /**
      * 重试失败的当前轮:沿用同一轮号与原说明重跑,不新增轮次。
