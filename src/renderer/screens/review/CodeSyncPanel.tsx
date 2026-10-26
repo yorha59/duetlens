@@ -41,7 +41,7 @@ export function CodeSyncPanel({ review, state, onChange, onClose }: {
         {preview.ahead > 0 && preview.behind > 0 ? <p>本地和远端都有新提交,请先在编辑器中整合分支。</p>
           : preview.direction === 'push' ? <><p>本地领先 {preview.ahead} 个提交,确认推送到远端？</p>{preview.dirty && <p>未提交改动留在本地,不会自动提交。</p>}</>
           : preview.direction === 'pull' ? <><p>远端领先 {preview.behind} 个提交,确认拉取到本地？</p>{preview.dirty && <p>本地有未提交改动,请先提交或自行 stash 后再拉取。</p>}</>
-          : <p>{preview.dirty ? '提交已同步。本地尚有未提交改动,不参与推送。' : '本地与远端已同步。'}</p>}
+          : <p>{preview.dirty ? '本地与远端提交一致；工作区有未提交改动,不参与同步。' : '本地与远端已同步。'}</p>}
       </>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
       <div className="code-sync-footer">

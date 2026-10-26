@@ -123,16 +123,9 @@ export class PrWorkspace {
   async syncStatus(review: Review) {
     if (!review.repoPath) return { pending: false };
     const info = await this.inspect(review, review.repoPath);
-    const untracked = await this.run('git', ['ls-files', '--others', '--exclude-standard', '-z'], info.repoPath);
-    if (untracked.length) return { pending: true };
-    // 比较最终代码内容,不因本地额外的空提交或已抵消的改动误报差异。
-    try {
-      await this.run('git', ['--no-optional-locks', 'diff', '--no-ext-diff', '--no-textconv', '--quiet', info.pr.head.sha, '--'], info.repoPath);
-      return { pending: false };
-    } catch (error) {
-      if ((error as { code?: number }).code === 1) return { pending: true };
-      throw new Error('无法比较本地代码和远端版本,请先拉取远端提交');
-    }
+    // 同步只传输已有提交;工作区和暂存区改动不计入顶栏的待同步状态。
+    const head = (await this.run('git', ['rev-parse', 'HEAD'], info.repoPath)).trim();
+    return { pending: head !== info.pr.head.sha };
   }
 
   async verifySyncedReview(review: Review, commit: string, reviewedTree: string) {

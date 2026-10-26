@@ -85,6 +85,7 @@ async function main() {
     } finally { await snapshot.dispose(); }
     const before = (await git(repo, 'rev-parse', 'HEAD')).trim();
     const dirty = await git(repo, 'status', '--porcelain=v1');
+    assert.equal((await service.syncStatus(review)).pending, true, 'unpublished commits require sync even with a dirty worktree');
     const automaticPush = await service.syncPreview(review);
     assert.equal(automaticPush.direction, 'push'); assert.equal(automaticPush.ahead, 1); assert.equal(automaticPush.dirty, true);
     assert.equal(pushCalls, 0, 'preview must not push');
@@ -101,6 +102,7 @@ async function main() {
     assert.equal(await readFile(path.join(repo, '新增 文件.ts'), 'utf8'), 'new file\n');
     const dirtyOnly = await service.syncPreview(review);
     assert.equal(dirtyOnly.direction, null); assert.equal(dirtyOnly.dirty, true);
+    assert.equal((await service.syncStatus(review)).pending, false, 'staged, unstaged and untracked changes alone must not require sync');
     await assert.rejects(service.syncCode(review, 'pull'), /未提交改动/);
     assert.equal((await git(repo, 'rev-parse', 'HEAD')).trim(), before);
     assert.equal(pushCalls, 2);
@@ -111,6 +113,7 @@ async function main() {
     await git(other, 'config', 'user.email', 'test@example.com'); await git(other, 'config', 'user.name', 'test');
     await writeFile(path.join(other, 'remote.ts'), 'new remote commit\n');
     await git(other, 'add', '.'); await git(other, 'commit', '-qm', 'remote moved'); await git(other, 'push', '-q');
+    assert.equal((await service.syncStatus(review)).pending, true, 'remote commits require sync before their objects are fetched');
     await assert.rejects(service.syncCode(review, 'push'), /落后|分叉/);
     const automaticPull = await service.syncPreview(review);
     assert.equal(automaticPull.direction, 'pull'); assert.equal(automaticPull.behind, 1);
@@ -119,6 +122,11 @@ async function main() {
     assert.equal(await readFile(path.join(repo, 'remote.ts'), 'utf8'), 'new remote commit\n');
     assert.equal((await service.syncStatus(review)).pending, false);
     assert.equal((await service.syncPreview(review)).direction, null, 'equal commits need no sync action');
+    await git(repo, 'commit', '--allow-empty', '-qm', 'empty local commit');
+    assert.equal((await service.syncStatus(review)).pending, true, 'equal code contents do not mean equal commit histories');
+    await service.syncCode(review, 'push');
+    assert.equal((await service.syncStatus(review)).pending, false);
+    await git(other, 'pull', '--ff-only', '-q');
     await writeFile(path.join(repo, 'local.ts'), 'local ahead\n');
     await git(repo, 'add', '.'); await git(repo, 'commit', '-qm', 'local ahead');
     const ahead = (await git(repo, 'rev-parse', 'HEAD')).trim();
@@ -128,6 +136,7 @@ async function main() {
     await git(other, 'commit', '-qam', 'remote diverged'); await git(other, 'push', '-q');
     const diverged = await service.syncPreview(review);
     assert.equal(diverged.direction, null); assert.equal(diverged.ahead, 1); assert.equal(diverged.behind, 1);
+    assert.equal((await service.syncStatus(review)).pending, true, 'diverged histories require attention');
     await assert.rejects(service.syncCode(review, 'pull'), /分叉/);
     await assert.rejects(service.syncCode(review, 'push'), /分叉/);
     assert.equal((await git(repo, 'rev-parse', 'HEAD')).trim(), ahead, 'divergence must not change local HEAD');
