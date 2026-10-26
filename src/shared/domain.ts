@@ -408,6 +408,8 @@ export interface ReviewRound {
 }
 
 export interface Discussion {
+  /** 对应工作区改动已消失,从当前视图归档。 */
+  workspaceStale?: boolean;
   id: string;
   reviewId: string;
   kind: DiscussionKind;

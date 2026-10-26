@@ -65,6 +65,31 @@ async function main() {
   assert.equal(manager.getFindings(local.id)[0].id, finding.id, 'restored file restores its history');
   assert.deepEqual(await readFile(path.join(repo, '.git/index')), index, 'refresh never stages files');
   assert.equal(agents, 0); assert.ok(workspaceEvents >= 3);
+  // 文件仍在但改动撤回:批注退出当前视图,历史和其他讨论保持。
+  const removedNote = manager.addUserDiscussion(local.id, { file: 'keep.ts', line: 1 });
+  const noteMessage = store.addMessage(removedNote.id, 'user', 'annotation on changed code', 'note');
+  const global = manager.addUserDiscussion(local.id);
+  await writeFile(path.join(repo, 'keep.ts'), 'base\n');
+  await manager.refreshLocal(local.id);
+  assert.equal(manager.getDiscussions(local.id).some(discussion => discussion.id === removedNote.id), false);
+  assert.equal(store.getDiscussion(removedNote.id)!.workspaceStale, true);
+  assert.equal(store.listMessages(removedNote.id)[0].id, noteMessage.id, 'archiving retains history');
+  assert(manager.getDiscussions(local.id).some(discussion => discussion.id === global.id));
+  assert.equal(reader.context(local.id, 'http://127.0.0.1/test').discussions.some(discussion => discussion.id === removedNote.id), false);
+  assert.equal(reader.context(local.id, 'http://127.0.0.1/test').files.some(file => file.path === 'keep.ts'), false);
+  // 同文件另一处改动仍在:只清掉撤回处,有效批注随原文平移。
+  await writeFile(path.join(repo, 'keep.ts'), 'base\nfirst change\nsecond change\n');
+  await manager.refreshLocal(local.id);
+  const first = manager.addUserDiscussion(local.id, { file: 'keep.ts', line: 2 });
+  const second = manager.addUserDiscussion(local.id, { file: 'keep.ts', line: 3 });
+  await writeFile(path.join(repo, 'keep.ts'), 'base\nsecond change\n');
+  await manager.refreshLocal(local.id);
+  assert.equal(manager.getDiscussions(local.id).some(discussion => discussion.id === first.id), false);
+  assert.equal(manager.getDiscussions(local.id).find(discussion => discussion.id === second.id)!.line, 2);
+  const afterRefresh = snapshotsMade;
+  await manager.refreshLocal(local.id);
+  assert.equal(snapshotsMade, afterRefresh, 'unchanged refresh does not repeat snapshot');
+  assert.equal(agents, 0);
   store.setReviewStatus(local.id, 'scanning');
   assert.equal((await manager.refreshLocal(local.id)).deferred, true, 'active scan must retain pinned source');
   console.log('live workspace: actual diff/deleted-file findings and comments/restore/current file and share/no-change fast path/review baseline/index preserved/zero agents passed');

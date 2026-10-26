@@ -49,7 +49,7 @@ async function main() {
       const oldThread = previous.addUserDiscussion(oldReview.id);
       const oldUser = previous.addMessage(oldThread.id, 'user', '旧版未记录类型');
       previous.addMessage(oldThread.id, 'agent', '历史回答');
-      legacy.exec('ALTER TABLE messages DROP COLUMN kind; PRAGMA user_version=34');
+      legacy.exec('ALTER TABLE messages DROP COLUMN kind; ALTER TABLE discussions DROP COLUMN workspace_stale; PRAGMA user_version=34');
       migrate(legacy);
       assert.deepEqual(previous.listMessages(oldThread.id).map(message => message.kind), ['legacy', 'chat']);
       previous.classifyUserMessage(oldReview.id, oldUser.id, 'note', oldUser.text);

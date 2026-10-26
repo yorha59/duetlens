@@ -1,3 +1,4 @@
+import { reconcileWorkspaceDiscussions } from '@shared/workspace-discussions';
 import { readRemoteComments } from '../source/remote-pr-comments';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -353,9 +354,13 @@ export class ReviewManager extends EventEmitter {
       const missing: string[] = [];
       for (const file of anchored) if (source.hasFile && !await source.hasFile(file)) missing.push(file);
       if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, reviewId));
-      const changed = (review.localReview && review.localBaseRef !== prepared.baseSha) || review.workspaceHead !== prepared.headSha || this.store.getRawDiff(reviewId) !== rawDiff || JSON.stringify(review.workspaceMissingFiles ?? []) !== JSON.stringify(missing);
+      const discussionUpdates = reconcileWorkspaceDiscussions(this.getDiff(reviewId), parseUnifiedDiff(rawDiff), this.store.listDiscussions(reviewId));
+      const changed = discussionUpdates.length > 0 || (review.localReview && review.localBaseRef !== prepared.baseSha) || review.workspaceHead !== prepared.headSha || this.store.getRawDiff(reviewId) !== rawDiff || JSON.stringify(review.workspaceMissingFiles ?? []) !== JSON.stringify(missing);
       if (changed) {
-        this.store.updateWorkspaceDisplay(reviewId, prepared.headSha, rawDiff, missing, prepared.baseSha);
+        this.store.transaction(() => {
+          this.store.reconcileWorkspaceDiscussions(reviewId, discussionUpdates);
+          this.store.updateWorkspaceDisplay(reviewId, prepared.headSha!, rawDiff, missing, prepared.baseSha);
+        });
         this.forward({ reviewId, type: 'workspace', payload: this.store.getReview(reviewId)! });
       }
       // 如果创建快照期间工作区再次变化,下一次轮询仍会重试。

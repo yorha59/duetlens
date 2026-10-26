@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.29] - 2026-10-26
+
+- Local refresh archives user annotation threads whose files or corresponding changes have left the current diff, and relocates valid single-line anchors when uniquely matched. Shared sessions follow the same visibility rules; history is retained and no agent is started.
+
 ## [0.12.0-fork.28] - 2026-10-26
 
 - The toolbar sync indicator compares local and remote commits only. Uncommitted, staged, and untracked changes no longer show as pending sync; the details dialog still explains local working changes.

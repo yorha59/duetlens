@@ -928,11 +928,11 @@ function ReviewPane({
   useEffect(() => () => { if (reportedRef.current) notifyRef.current?.(false); }, []);
 
   useEffect(() => {
-    if (!review?.workspaceMissingFiles?.length) return;
+    if (!review?.workspaceHead) return;
     if (activeDiscussionId && !discussions.some((discussion) => discussion.id === activeDiscussionId)) setActiveDiscussionId(null);
     if (focusFindingId && !findings.some((finding) => finding.id === focusFindingId)) setFocusFindingId(null);
-    if (activePath && review.workspaceMissingFiles.includes(activePath) && !diff.some((file) => file.path === activePath)) setActivePath(diff[0]?.path ?? null);
-  }, [review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
+    if (activePath && review.workspaceMissingFiles?.includes(activePath) && !diff.some((file) => file.path === activePath)) setActivePath(diff[0]?.path ?? null);
+  }, [review?.workspaceHead, review?.workspaceMissingFiles, activeDiscussionId, focusFindingId, activePath, discussions, findings, diff]);
 
   const [codexBindingState, setCodexBindingState] = useState<{ reviewId: string; binding: CodexBinding | null } | null>(null);
   const codexBinding = codexBindingState?.reviewId === reviewId ? codexBindingState.binding : null;

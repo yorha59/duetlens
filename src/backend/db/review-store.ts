@@ -127,6 +127,7 @@ interface FindingRow {
 }
 
 interface DiscussionRow {
+  workspace_stale: number;
   side?: 'old' | 'new';
   id: string;
   review_id: string;
@@ -307,6 +308,7 @@ function toProposal(r: ProposalRow): FindingProposal {
 
 function toDiscussion(r: DiscussionRow): Discussion {
   return {
+    workspaceStale: !!r.workspace_stale,
     side: r.side ?? 'new',
     id: r.id,
     reviewId: r.review_id,
@@ -1348,6 +1350,14 @@ export class ReviewStore {
       | DiscussionRow
       | undefined;
     return r ? toDiscussion(r) : null;
+  }
+
+  reconcileWorkspaceDiscussions(reviewId: string, updates: import('@shared/workspace-discussions').WorkspaceDiscussionUpdate[]): void {
+    for (const update of updates) {
+      this.db.prepare(`UPDATE discussions SET workspace_stale = ?, line = COALESCE(?, line),
+        line_end = CASE WHEN line_end = line THEN COALESCE(?, line_end) ELSE line_end END
+        WHERE id = ? AND review_id = ? AND kind = 'user'`).run(update.stale ? 1 : 0, update.line ?? null, update.line ?? null, update.id, reviewId);
+    }
   }
 
   listDiscussions(reviewId: string): Discussion[] {

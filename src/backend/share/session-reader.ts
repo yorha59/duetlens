@@ -36,7 +36,7 @@ export class SharedSessionReader {
   private files(review: Review) {
     const diff = parseUnifiedDiff(this.store.getRawDiff(review.id) ?? '');
     const missing = new Set(review.workspaceMissingFiles ?? []);
-    const anchored = [...this.store.listFindings(review.id).map((f) => f.file), ...this.store.listDiscussions(review.id).map((d) => d.file)];
+    const anchored = [...this.store.listFindings(review.id).map((f) => f.file), ...this.store.listDiscussions(review.id).filter(discussion => workspaceAnchorVisible(discussion, review, diff)).map((d) => d.file)];
     return { diff, paths: [...new Set([...diff.map((f) => f.path), ...anchored.filter((f): f is string => !!f && !missing.has(f))])].filter(isShareFilePath) };
   }
 
