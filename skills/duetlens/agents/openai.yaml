@@ -1,0 +1,4 @@
+interface:
+  display_name: "Duetlens"
+  short_description: "通过本地 HTTP 端口读取 Duetlens 评论并完成代码修改，明确报告缺失能力"
+  default_prompt: "使用 $duetlens 读取审核评论，定位对应代码，完成修改和验证，并列出接口能力缺口。"

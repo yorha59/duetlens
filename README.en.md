@@ -101,6 +101,18 @@ Duetlens is a 2.0 full rewrite of [better-review](https://github.com/xieziyu/bet
 
 Bugs and requests go to [Issues](https://github.com/xieziyu/duetlens/issues). The feedback link under Settings → About prefills one with your environment.
 
+## Codex annotation skill
+
+The bundled [Duetlens skill](skills/duetlens/SKILL.md) reads local HTTP share links, preserves discussion context, and edits the reviewed repository as requested without computer-use. Install it from the repository root:
+
+```bash
+DUETLENS_SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/duetlens"
+mkdir -p "$DUETLENS_SKILL_DIR"
+cp -R skills/duetlens/. "$DUETLENS_SKILL_DIR/"
+```
+
+Use **Share session** in Duetlens and send its link to Codex with `$duetlens`. The standard-library client requires Python 3. The share API is read-only; the skill reports unsupported write-back and review actions explicitly.
+
 ## License
 
 [GPL-3.0-or-later](LICENSE)

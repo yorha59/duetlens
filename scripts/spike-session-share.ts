@@ -43,7 +43,7 @@ async function main() {
     await source.saveSnapshot(path.join(snapshots, local.id)); await source.dispose();
     store.startRound(local.id, 1, { headSha: prepared.headSha }); store.finishRound(local.id, 1, 'done');
     const finding = store.addFinding(local.id, { file: 'code.ts', line: 1, severity: 'medium', title: 'review issue', body: 'review evidence' });
-    store.addMessage(finding.discussionId, 'user', 'Please fix this exact line');
+    const annotation = store.addMessage(finding.discussionId, 'user', 'Please fix this exact line', 'note');
     const other = store.addFinding(remote.id, { file: 'remote.ts', line: 1, severity: 'low', title: 'remote-only', body: 'not in local share' });
     store.addMessage(other.discussionId, 'user', 'remote-only comment');
     const share = await server.share(local.id);
@@ -62,6 +62,15 @@ async function main() {
     assert.equal(wrongHost, 403);
     assert.equal((await fetch(share.url, { method: 'POST' })).status, 405);
     assert.equal((await fetch(share.url.replace(/sessions\/.+/, 'sessions/' + 'x'.repeat(43)))).status, 404);
+    // 用仓库随附 skill 的真实 Python 客户端验证公开协议,从仓库外 cwd 运行。
+    const skillClient = path.resolve(__dirname, '../skills/duetlens/scripts/duetlens.py');
+    const skill = async (...args: string[]) => (await exec('python3', [skillClient, ...args], { cwd: root })).stdout;
+    const skillComments = JSON.parse(await skill('comments', share.url));
+    assert.deepEqual(skillComments.noteMessageIds, [annotation.id]);
+    assert.equal(skillComments.userMessageKinds[annotation.id], 'note');
+    assert.equal(skillComments.review.id, local.id);
+    assert.equal(JSON.parse(await skill('file', share.url, '--path', '带 空格.ts')).content, 'const unicode = true;\n');
+    assert.equal(await skill('diff', share.url), rawDiff);
     const fileUrl = (file: string) => context.files.find((entry: { path: string }) => entry.path === file).url;
     assert.equal(await (await fetch(context.diffUrl)).text(), rawDiff);
     const beforeIndex = await readFile(path.join(repo, '.git/index'));

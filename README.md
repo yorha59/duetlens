@@ -103,6 +103,20 @@ Duetlens 是 [better-review](https://github.com/xieziyu/better-review) 的 2.0 �
 
 Bug 与需求走 [Issues](https://github.com/xieziyu/duetlens/issues)。应用内"设置 → 关于"里的反馈入口会带上环境信息预填一份。
 
+## Codex 批注处理 skill
+
+仓库附带 [skills/duetlens](skills/duetlens/SKILL.md)：通过本机 HTTP 分享链接读取批注、完整讨论及审核版本代码，并按要求完成被审仓库的修改和验证，不使用 computer-use。
+
+从仓库根目录安装到 Codex 的用户技能目录：
+
+```bash
+DUETLENS_SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/duetlens"
+mkdir -p "$DUETLENS_SKILL_DIR"
+cp -R skills/duetlens/. "$DUETLENS_SKILL_DIR/"
+```
+
+在 Duetlens 点击「分享会话」，把链接发给 Codex，例如“使用 `$duetlens` 读取这些批注并完成修改”。分享端口只读；无法回写评论、标记解决或触发复审时，skill 会明确报告缺口。客户端只需 Python 3，安装位置不依赖本机用户名。
+
 ## License
 
 [GPL-3.0-or-later](LICENSE)
