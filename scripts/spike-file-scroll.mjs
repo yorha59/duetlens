@@ -15,7 +15,7 @@ try {
     import { DiffPane } from './src/renderer/screens/review/DiffPane';
     import './src/renderer/index.css';
     import './src/renderer/screens/ReviewScreen.css';
-    const files=Array.from({length:30},(_,i)=>({path:'pkg/group'+String(i).padStart(2,'0')+'/file.ts',oldPath:null,status:'added',binary:false,additions:80,deletions:0,hunks:[{oldStart:0,oldCount:0,newStart:1,newCount:80,section:'',lines:Array.from({length:80},(_,j)=>({kind:'add',oldLine:null,newLine:j+1,text:'const value'+j+' = '+j+';'}))}]}));
+    const files=Array.from({length:30},(_,i)=>({path:(i<20?'pkg':'tools')+'/group'+String(i).padStart(2,'0')+'/file.ts',oldPath:null,status:'added',binary:false,additions:80,deletions:0,hunks:[{oldStart:0,oldCount:0,newStart:1,newCount:80,section:'',lines:Array.from({length:80},(_,j)=>({kind:'add',oldLine:null,newLine:j+1,text:'const value'+j+' = '+j+';'}))}]}));
     const empty=[];const none=new Set();
     function App(){
       const [active,setActive]=useState(files[0].path);const [nonce,setNonce]=useState(0);
@@ -44,9 +44,13 @@ app.whenReady().then(async () => {
   const click=async selector=>{const at=await js('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');e.scrollIntoView({block:"nearest"});const r=e.getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()');win.webContents.sendInputEvent({type:'mouseDown',...at,button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',...at,button:'left',clickCount:1});await wait(80)};
   const browse=async(index,offset=400)=>{
     await js('(()=>{const p=document.querySelector(".diff.pane");const file=p.querySelectorAll(".diff-file")['+index+'];p.scrollTop+=file.getBoundingClientRect().top-p.getBoundingClientRect().top+'+offset+';p.dispatchEvent(new Event("wheel"));})()');
-    await until('document.querySelector(".tree .file.active")?.dataset.path === "pkg/group'+String(index).padStart(2,'0')+'/file.ts"');await wait(180);
+    await until('document.querySelector(".tree .file.active")?.dataset.path === "'+(index<20?'pkg':'tools')+'/group'+String(index).padStart(2,'0')+'/file.ts"');await wait(180);
   };
   await browse(14);
+  const checkRoot = async name => {
+    assert(await js('(()=>{const root=document.querySelector(".file.active").closest(".tree-root").querySelector(":scope > .dir");const h=document.querySelector(".tree-top").getBoundingClientRect();const r=root.getBoundingClientRect();return root.title==='+JSON.stringify(name)+'&&r.top>=h.bottom-2&&r.bottom<=document.querySelector(".file.active").getBoundingClientRect().top+2})()'),'top-level directory stays visible below filter: '+name);
+  };
+  await checkRoot('pkg');
   const position=await js('document.querySelector(".diff.pane").scrollTop');await wait(300);
   assert(Math.abs((await js('document.querySelector(".diff.pane").scrollTop'))-position)<3,'scroll-spy must not snap the diff back to a header');
   assert(await js('(()=>{const p=document.querySelector(".tree").getBoundingClientRect();const r=document.querySelector(".tree .file.active").getBoundingClientRect();const h=document.querySelector(".tree-top").getBoundingClientRect();return r.top>=h.bottom-1&&r.bottom<=p.bottom+1})()'),'tree follows active row into view');
@@ -58,6 +62,8 @@ app.whenReady().then(async () => {
   await until('(()=>{const p=document.querySelector(".diff.pane"),f=p.querySelectorAll(".diff-file")[14];return Math.abs(f.getBoundingClientRect().top-p.getBoundingClientRect().top-parseFloat(getComputedStyle(p).scrollPaddingTop))<4})()');
   await wait(100);
   await browse(3,600);
+  await browse(25);
+  await checkRoot('tools');
   await click('.tvsw button[title="平铺"]');
   await browse(25);
   assert.equal(await js('document.querySelectorAll(".tree .file.active").length'),1);

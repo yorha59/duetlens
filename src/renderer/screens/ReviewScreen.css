@@ -5800,3 +5800,12 @@ body.rz-dragging * {
 .discussion-kind-tabs button[aria-selected=true] { color: var(--agent-2); border-color: var(--agent-line); background: var(--agent-soft); }
 .legacy-message-hint { padding: 8px 12px; font-size: 12px; color: var(--text-dim); }
 .remark-classify { display: flex; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--del); }
+
+/* 顶层目录在自己的子树内吸顶,跟随文件滚动时保留根目录上下文。 */
+.tree.tv-tree .tree-root > .dir {
+  position: sticky;
+  top: var(--tree-header-height, 0px);
+  z-index: 1;
+  width: 100%;
+  background: var(--surface);
+}

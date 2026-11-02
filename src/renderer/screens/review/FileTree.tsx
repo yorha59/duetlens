@@ -107,6 +107,28 @@ export function FileTree({
         : [],
     [view, shown, collapsed, filtering, findingCount, viewed],
   );
+  // 每个顶层目录是一段滚动区域,目录头吸顶只在自己的子树内生效。
+  const rootGroups = useMemo(() => {
+    const groups: { key: string; rooted: boolean; rows: TreeRow[] }[] = [];
+    for (const row of rows) {
+      if (row.depth === 0) {
+        groups.push({ key: row.kind === 'dir' ? row.path : row.hit.file.path, rooted: row.kind === 'dir', rows: [row] });
+      } else {
+        groups[groups.length - 1]?.rows.push(row);
+      }
+    }
+    return groups;
+  }, [rows]);
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    const header = pane?.querySelector<HTMLElement>('.tree-top');
+    if (!visible || !pane || !header) return;
+    const measure = () => pane.style.setProperty('--tree-header-height', `${header.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [visible]);
   useEffect(() => {
     if (!visible || !activePath || view !== 'tree' || filtering) return;
     setCollapsed(previous => {
@@ -122,7 +144,9 @@ export function FileTree({
     const item = pane?.querySelector<HTMLElement>('.file.active');
     if (!visible || !pane || !item) return;
     const area = pane.getBoundingClientRect();
-    const top = pane.querySelector('.tree-top')?.getBoundingClientRect().bottom ?? area.top;
+    const headerBottom = pane.querySelector('.tree-top')?.getBoundingClientRect().bottom ?? area.top;
+    const root = item.closest('.tree-root')?.querySelector<HTMLElement>(':scope > .dir');
+    const top = headerBottom + (root?.getBoundingClientRect().height ?? 0);
     const row = item.getBoundingClientRect();
     if (row.top < top) pane.scrollTop += row.top - top;
     else if (row.bottom > area.bottom) pane.scrollTop += row.bottom - area.bottom;
@@ -245,19 +269,19 @@ export function FileTree({
       {view === 'tree'
         ? rows.length > 0 && (
             <div className="group">
-              {rows.map((r) =>
-                r.kind === 'file' ? (
-                  row(r.hit, r.depth)
-                ) : (
-                  <DirRow
-                    key={r.path}
-                    row={r}
-                    terms={filtering ? terms : null}
-                    filtering={filtering}
-                    onToggle={toggleDir}
-                  />
-                ),
-              )}
+              {rootGroups.map(group => (
+                <div key={group.key} className={group.rooted ? 'tree-root' : undefined}>
+                  {group.rows.map(r => r.kind === 'file' ? row(r.hit, r.depth) : (
+                    <DirRow
+                      key={r.path}
+                      row={r}
+                      terms={filtering ? terms : null}
+                      filtering={filtering}
+                      onToggle={toggleDir}
+                    />
+                  ))}
+                </div>
+              ))}
             </div>
           )
         : groupByDir(shown).map((g) => (

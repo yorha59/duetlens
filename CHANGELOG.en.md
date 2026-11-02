@@ -4,6 +4,11 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.31] - 2026-11-02
+
+- Add local requirement labels for reviews while preserving original PR titles; edit or clear labels and confirm deletion of local review records from the recent list.
+- Keep the top-level directory visible below the file filter while following the current file, switching roots with the visible subtree.
+
 ## [0.12.0-fork.30] - 2026-11-02
 
 - The file tree follows the file currently being read, expands its ancestors, and keeps the active row visible. Explicit navigation stays separate from passive highlighting to prevent snap-back. Supports tree and flat views with frame-coalesced updates and no idle polling.
