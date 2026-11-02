@@ -104,7 +104,7 @@ export function HistoryScreen({ onOpen }: { onOpen: (id: string) => void }): Rea
       if (srcFilter !== 'all' && r.source !== srcFilter && !(srcFilter === 'local-branch' && r.source === 'local-worktree')) return false;
       if (statFilter !== 'all' && statusGroup(r.status) !== statFilter) return false;
       if (q) {
-        const hay = `${r.title ?? ''} ${repoName(r) ?? r.source} ${r.sourceRef}`.toLowerCase();
+        const hay = `${r.localTitle ?? ''} ${r.title ?? ''} ${repoName(r) ?? r.source} ${r.sourceRef}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -197,7 +197,7 @@ export function HistoryScreen({ onOpen }: { onOpen: (id: string) => void }): Rea
                     pending.has(r.id) ? (
                       <div className="hist-rev gone" key={r.id}>
                         <div className="undo">
-                          已删除 <b>{r.title ?? r.sourceRef}</b>
+                          已删除 <b>{r.localTitle ?? r.title ?? r.sourceRef}</b>
                           <button onClick={() => undoDelete(r.id)}>撤销</button>
                         </div>
                       </div>
@@ -205,7 +205,7 @@ export function HistoryScreen({ onOpen }: { onOpen: (id: string) => void }): Rea
                       <div className="hist-rev" key={r.id} onClick={() => onOpen(r.id)}>
                         <SourceBadge source={r.source} sourceRef={r.sourceRef} />
                         <div className="m">
-                          <div className="t">{r.title ?? r.sourceRef}</div>
+                          <div className="t">{r.localTitle ?? r.title ?? r.sourceRef}</div>
                           <div className="meta mono">{metaParts(r, daysLeft(r.updatedAt, now))}</div>
                         </div>
                         <StatusChip status={r.status} unscanned={isUnscanned(r)} scanningScopes={r.scanningScopeCount} />

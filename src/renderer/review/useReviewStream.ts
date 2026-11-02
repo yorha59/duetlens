@@ -438,6 +438,7 @@ export function useReviewStream(reviewId: string | null): ReviewStreamState {
           void window.duetlens.review.findings(reviewId).then((items) => alive && setFindings(items));
           void window.duetlens.review.discussions(reviewId).then((items) => alive && setDiscussions(items));
           return;
+        case 'deleted': return;
         case 'review':
           setReview(e.payload);
           setStatus(e.payload.status);

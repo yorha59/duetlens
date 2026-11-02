@@ -1125,7 +1125,7 @@ function ReviewPane({
   const sourceLabel = pr ? `#${pr.num}` : (review?.sourceRef ?? '…');
   // 标题去掉与 chip 重复的开头(backend 按 `<身份> · <正文>` 拼);剥空就只剩 chip
   const titleRest = review
-    ? sourceTitleRest(review.source, review.sourceRef, review.title, review.headRef)
+    ? (review.localTitle ?? sourceTitleRest(review.source, review.sourceRef, review.title, review.headRef))
     : '';
 
   // URL 解析与打开都在 main 侧(ref 可能只有 PR 号,需借 repoPath 推断仓库)

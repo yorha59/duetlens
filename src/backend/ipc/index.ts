@@ -245,6 +245,7 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
         reasoningEffort: input.reasoningEffort,
         intensity: input.intensity,
         context: input.context,
+        localTitle: input.localTitle,
       },
       startId
         ? (stage) =>
@@ -288,6 +289,7 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   ipcMain.handle(IpcChannels.reviewResume, (_e, reviewId: string) => manager.resumeReview(reviewId));
   ipcMain.handle(IpcChannels.reviewCapacity, () => manager.getLiveCapacity());
   ipcMain.handle(IpcChannels.reviewRelease, (_e, reviewId: string) => manager.disposeReview(reviewId));
+  ipcMain.handle(IpcChannels.reviewLocalTitle, (_e, id: string, title: string) => manager.setLocalTitle(id, title));
   ipcMain.handle(IpcChannels.reviewDelete, (_e, reviewId: string) => manager.deleteReview(reviewId));
   ipcMain.handle(IpcChannels.reviewAddDiscussion, (_e, reviewId: string, anchor?: DiscussionAnchor | null) =>
     manager.addUserDiscussion(reviewId, anchor),

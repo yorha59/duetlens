@@ -3,6 +3,7 @@ import type { CommitPosition } from '@shared/source-discovery';
 
 /** 一次审核的目标定位(三种 source 共用)。 */
 export interface ReviewTarget {
+  localTitle?: string;
   source: SourceKind;
   /** 本地快照对象归档目录,仅运行时注入。 */
   snapshotPath?: string;

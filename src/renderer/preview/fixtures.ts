@@ -1235,7 +1235,12 @@ export function installPreviewApi(): void {
         };
       },
       release: async () => {},
-      delete: async () => {},
+      setLocalTitle: async (id, title) => {
+        const updated = { ...review, id, localTitle: title.trim() || null };
+        fire({ reviewId: id, type: 'review', payload: updated });
+        return updated;
+      },
+      delete: async (id) => { fire({ reviewId: id, type: 'deleted', reviewIds: [id] }); },
       addDiscussion: async (_r, anchor) => {
         const d: Discussion = {
           id: `d-user-${Date.now()}`,

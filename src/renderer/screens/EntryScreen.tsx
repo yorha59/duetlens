@@ -107,6 +107,7 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
   const [effort, setEffort] = useState<ReasoningEffort>('medium');
   const [intensity, setIntensity] = useState<ReviewIntensity>('standard');
   const [context, setContext] = useState('');
+  const [localTitle, setLocalTitle] = useState('');
   const [ctxOpen, setCtxOpen] = useState(false);
   // 按 agent 缓存:来回切换不必每次重新拉起子进程去问
   const [modelsByAgent, setModelsByAgent] = useState<Partial<Record<AgentKind, AgentModelInfo[]>>>({});
@@ -300,6 +301,7 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
       reasoningEffort: effort,
       intensity,
       context: context.trim() || undefined,
+      localTitle: localTitle.trim() || undefined,
       startId,
     };
     update({
@@ -421,6 +423,7 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
         )}
 
         <div className="cardfoot">
+          <label className="entry-local-title">本地备注标题（可选）<input aria-label="新审核本地备注标题" maxLength={120} value={localTitle} onChange={event => setLocalTitle(event.target.value)} placeholder="用于标记对应需求,不修改 PR 标题" /></label>
           <button
             type="button"
             className={ctxOpen ? 'ctxtoggle open' : 'ctxtoggle'}
@@ -552,7 +555,7 @@ export function EntryScreen({ onOpenReview }: { onOpenReview: (id: string) => vo
         </div>
       </div>
 
-      <RecentReviews reviews={reviews} onOpen={onOpenReview} />
+      <RecentReviews reviews={reviews} onOpen={onOpenReview} onChanged={updated => setReviews(current => current.map(review => review.id === updated.id ? updated : review))} onDeleted={id => setReviews(current => current.filter(review => review.id !== id))} />
 
       {overlay && (
         <StartOverlay

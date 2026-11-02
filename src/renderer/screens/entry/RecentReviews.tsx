@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { RecentReview } from '@shared/ipc';
 import { isUnscanned, UNSCANNED_LABEL, type ReviewStatus, type SourceKind } from '@shared/domain';
 import { GhIcon, GitButlerIcon, LocalBranchIcon } from './icons';
@@ -10,9 +11,13 @@ const LIMIT = 20;
 export function RecentReviews({
   reviews,
   onOpen,
+  onChanged,
+  onDeleted,
 }: {
   reviews: RecentReview[];
   onOpen: (id: string) => void;
+  onChanged: (review: RecentReview) => void;
+  onDeleted: (id: string) => void;
 }) {
   const shown = reviews.slice(0, LIMIT);
   return (
@@ -33,10 +38,41 @@ export function RecentReviews({
       ) : (
         <div className="recent-list">
           {shown.map((r) => (
-            <div key={r.id} className="recent-rev" onClick={() => onOpen(r.id)}>
+            <RecentReviewRow key={r.id} review={r} onOpen={onOpen} onChanged={onChanged} onDeleted={onDeleted} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecentReviewRow({ review: r, onOpen, onChanged, onDeleted }: {
+  review: RecentReview; onOpen: (id: string) => void; onChanged: (review: RecentReview) => void; onDeleted: (id: string) => void;
+}) {
+  const [panel, setPanel] = useState<'title' | 'delete' | null>(null);
+  const [draft, setDraft] = useState(r.localTitle ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { const updated = await window.duetlens.review.setLocalTitle(r.id, draft); onChanged({ ...r, ...updated }); setPanel(null); }
+    catch (error) { setError((error as Error).message); }
+    finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { await window.duetlens.review.delete(r.id); onDeleted(r.id); }
+    catch (error) { setError((error as Error).message); }
+    finally { setBusy(false); }
+  };
+  return <div className="recent-review-item">
+            <div className="recent-rev" onClick={() => onOpen(r.id)}>
               <SourceBadge source={r.source} sourceRef={r.sourceRef} />
               <div className="m">
-                <div className="t">{r.title ?? r.sourceRef}</div>
+                <div className="t">{r.localTitle ?? r.title ?? r.sourceRef}</div>
+                {r.localTitle && <div className="recent-original-title" title={r.title ?? r.sourceRef}>{r.title ?? r.sourceRef}</div>}
                 <div className="meta mono">
                   <span>{repoName(r) ?? r.source}</span>
                   {/* 只审一个 commit 的那条要能与「整个 PR」分开(同 HistoryScreen 的元信息行) */}
@@ -70,13 +106,24 @@ export function RecentReviews({
                 </div>
               </div>
               <StatusChip status={r.status} unscanned={isUnscanned(r)} scanningScopes={r.scanningScopeCount} />
+              <div className="recent-actions" onClick={event => event.stopPropagation()}>
+                <button type="button" onClick={() => { setPanel('title'); setDraft(r.localTitle ?? ''); setError(''); }}>{r.localTitle ? '编辑标题' : '添加标题'}</button>
+                <button type="button" onClick={() => { setPanel('delete'); setError(''); }}>删除</button>
+              </div>
               <span className="arrow">→</span>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+    {panel && <div className="recent-edit-panel">
+      {panel === 'title' ? <form onSubmit={event => { event.preventDefault(); void save(); }}>
+        <label>本地备注标题<input autoFocus aria-label="本地备注标题" maxLength={120} value={draft} disabled={busy} placeholder="例如：节目草稿需求" onChange={event => setDraft(event.target.value)} /></label>
+        <p>仅用于本地标记需求；留空可恢复原始标题。</p>
+        <div><button type="button" disabled={busy} onClick={() => setPanel(null)}>取消</button><button type="submit" disabled={busy}>{busy ? '保存中…' : '保存标题'}</button></div>
+      </form> : <>
+        <p>删除这条本地审核记录？对应批注、对话和审核结果也会删除，正在运行的机审会停止。Git 分支和 GitHub PR 不受影响。</p>
+        <div><button type="button" disabled={busy} onClick={() => setPanel(null)}>取消</button><button type="button" className="recent-confirm-delete" disabled={busy} onClick={() => void remove()}>{busy ? '删除中…' : '确认删除审核'}</button></div>
+      </>}
+      {error && <p className="recent-action-error" role="alert">{error}</p>}
+    </div>}
+  </div>;
 }
 
 function SourceBadge({ source, sourceRef }: { source: SourceKind; sourceRef: string }) {

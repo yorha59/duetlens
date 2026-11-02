@@ -157,6 +157,18 @@ export function App({
    * 反过来,**没被激活过的 tab 先不挂**(恢复出来的一堆 tab 不该在冷启动一次性挂上 N 份 diff)。
    */
   const [everActive, setEverActive] = useState<string[]>(() => (tabState.activeId ? [tabState.activeId] : []));
+  useEffect(() => window.duetlens.review.onEvent(event => {
+    if (event.type !== 'deleted') return;
+    const ids = new Set(event.reviewIds);
+    const next = event.reviewIds.reduce((state, id) => closeTab(state, id), tabStateRef.current);
+    tabStateRef.current = next;
+    setTabState(next);
+    setEverActive(current => current.filter(id => !ids.has(id)));
+    setScopeIds(current => Object.fromEntries(Object.entries(current).filter(([parent, child]) => !ids.has(parent) && !ids.has(child))));
+    for (const id of ids) delete unsaved.current[id];
+    if (!next.tabs.length) setScreen('entry');
+  }), []);
+
   useEffect(() => {
     const id = tabState.activeId;
     if (id && !everActive.includes(id)) setEverActive((prev) => [...prev, id]);

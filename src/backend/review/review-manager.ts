@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { rm, cp } from 'node:fs/promises';
-import { isProposalUndoBlocked, isUnscanned, REVIEW_RETENTION_MS, scanDoneStatus } from '@shared/domain';
+import { normalizeLocalReviewTitle, isProposalUndoBlocked, isUnscanned, REVIEW_RETENTION_MS, scanDoneStatus } from '@shared/domain';
 import type {
   AgentKind,
   AgentModelInfo,
@@ -1054,6 +1054,12 @@ export class ReviewManager extends EventEmitter {
     await this.teardown(reviewId);
   }
 
+  setLocalTitle(reviewId: string, title: string): Review {
+    const changed = this.store.setLocalTitle(reviewId, title);
+    for (const review of changed) this.forward({ reviewId: review.id, type: 'review', payload: review });
+    return this.store.getReview(reviewId)!;
+  }
+
   /**
    * 删除一次审核:先释放活跃会话(子进程/MCP),再连同 findings/discussions 级联删库。
    *
@@ -1070,6 +1076,7 @@ export class ReviewManager extends EventEmitter {
     this.store.deleteReview(reviewId);
     if (this.snapshotRoot) for (const id of ids) await rm(path.join(this.snapshotRoot, id), { recursive: true, force: true });
     this.scopeCommits.delete(reviewId);
+    this.forward({ reviewId, type: 'deleted', reviewIds: ids });
     // 第一次 teardown 释放会话要 await,那期间来的追问读到的还是删除前的行,会照常续接上来。
     // 再拆一次收掉它:此后新来的续接第一步就查不到 review,这条路到此为止。
     for (const id of ids) await this.teardown(id);
@@ -1187,6 +1194,7 @@ export class ReviewManager extends EventEmitter {
    * 那个提交范围;返回的是容器,进屏后按 active_scope 落到该提交上。
    */
   async startReview(target: ReviewTarget, onStage?: (s: ReviewStartStage) => void): Promise<Review> {
+    if (target.localTitle !== undefined) normalizeLocalReviewTitle(target.localTitle);
     const pinned = target.source === 'github-pr' ? target.headRef?.trim() : '';
     if (!pinned) return this.launchNewReview(target, null, onStage);
 
@@ -1225,6 +1233,7 @@ export class ReviewManager extends EventEmitter {
         headRef: null,
         repoPath: target.repoPath || null,
         title: prepared.title,
+        localTitle: target.localTitle,
         agent: target.agent ?? 'codex',
         model: target.model || null,
         reasoningEffort: target.reasoningEffort || null,
@@ -1272,6 +1281,7 @@ export class ReviewManager extends EventEmitter {
         parentReviewId,
         repoPath: target.repoPath || null,
         title: prepared.title,
+        localTitle: target.localTitle,
         agent: target.agent ?? 'codex',
         model: target.model || null,
         reasoningEffort: target.reasoningEffort || null,
@@ -1403,6 +1413,7 @@ export class ReviewManager extends EventEmitter {
         parentReviewId: parentId,
         repoPath: parent.repoPath,
         title: prepared.title,
+        localTitle: parent.localTitle,
         // 审核配置继承容器:同一个 PR 的几个范围用不同 agent/模型/强度审,结论之间就没法比
         agent: parent.agent,
         model: parent.model,

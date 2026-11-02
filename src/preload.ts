@@ -67,6 +67,7 @@ const api: DuetlensApi = {
     resume: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewResume, reviewId),
     capacity: () => ipcRenderer.invoke(IpcChannels.reviewCapacity),
     release: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewRelease, reviewId),
+    setLocalTitle: (id, title) => ipcRenderer.invoke(IpcChannels.reviewLocalTitle, id, title),
     delete: (reviewId) => ipcRenderer.invoke(IpcChannels.reviewDelete, reviewId),
     addDiscussion: (reviewId, anchor) =>
       ipcRenderer.invoke(IpcChannels.reviewAddDiscussion, reviewId, anchor),

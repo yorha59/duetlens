@@ -67,7 +67,7 @@ export function useTabMeta(
     setInfo((prev) => ({
       ...prev,
       [id]: {
-        title: r.title ?? r.sourceRef,
+        title: r.localTitle ?? r.title ?? r.sourceRef,
         sourceRef: r.sourceRef,
         source: r.source,
         repoPath: r.repoPath,

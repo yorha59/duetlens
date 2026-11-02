@@ -86,6 +86,7 @@ export const IpcChannels = {
   reviewCapacity: 'review:capacity',
   reviewRelease: 'review:release',
   reviewDelete: 'review:delete',
+  reviewLocalTitle: 'review:local-title',
   reviewDiscussions: 'review:discussions',
   reviewMessages: 'review:messages',
   reviewAddDiscussion: 'review:add-discussion',
@@ -136,6 +137,7 @@ export const IpcChannels = {
 
 /** 发起一次真实审核的目标(对应 backend ReviewTarget;repoPath 对 github-pr 可省)。 */
 export interface ReviewStartInput {
+  localTitle?: string;
   source: SourceKind;
   /** github-pr: PR url / owner/repo#123 / 号;local-branch: 分支名(空=当前 HEAD) */
   ref: string;
@@ -458,6 +460,7 @@ export type ReviewEvent =
   | { reviewId: string; type: 'messages-cleared'; discussionId: string; kind?: 'note' | 'chat' }
   | { reviewId: string; type: 'discussion'; payload: Discussion }
   | { reviewId: string; type: 'review'; payload: Review }
+  | { reviewId: string; type: 'deleted'; reviewIds: string[] }
   | { reviewId: string; type: 'status'; payload: Review['status'] }
   | { reviewId: string; type: 'agent'; payload: AgentEvent }
   /** 追问出队开跑(此前一直排在扫描/前一问后面);turnId 要到 turn/start 应答才有,故不带 */
@@ -568,6 +571,7 @@ export interface DuetlensApi {
     release(reviewId: string): Promise<void>;
     /** 删除一次审核(级联清理 findings/discussions/messages 等);历史屏用。 */
     delete(reviewId: string): Promise<void>;
+    setLocalTitle(reviewId: string, title: string): Promise<Review>;
     /** 新建用户发起的 discussion;不传 anchor 即一条不锚定代码的全局讨论。 */
     addDiscussion(reviewId: string, anchor?: DiscussionAnchor | null): Promise<Discussion>;
     /** 就某条 discussion 向 agent 追问;返回 agent 回复(无文本时返回用户消息)。 */

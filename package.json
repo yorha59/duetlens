@@ -73,7 +73,9 @@
     "spike:remark-ui": "node scripts/spike-remark-ui.mjs",
     "spike:file-scroll": "node scripts/spike-file-scroll.mjs",
     "spike:finding-followup": "node scripts/spike-finding-followup.mjs",
-    "spike:codex-chat": "tsx scripts/spike-codex-chat.ts"
+    "spike:codex-chat": "tsx scripts/spike-codex-chat.ts",
+    "spike:local-review-title": "tsx scripts/spike-local-review-title.ts",
+    "spike:recent-review-actions": "node scripts/spike-recent-review-actions.mjs"
   },
   "keywords": [],
   "author": {

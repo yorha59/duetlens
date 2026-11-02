@@ -357,6 +357,8 @@ export interface Review {
   /** 审核强度(标准 / 对抗);续接会话与重跑复用同一档 */
   intensity: ReviewIntensity;
   title: string | null;
+  /** 仅用于本地标记需求,不改来源标题。 */
+  localTitle?: string | null;
   status: ReviewStatus;
   /** codex 生成的总结正文;只读呈现给 reviewer,不参与提交与导出 */
   summaryBody: string | null;
@@ -849,4 +851,10 @@ export interface AgentModelInfo {
   displayName: string;
   description: string;
   isDefault: boolean;
+}
+
+/** 空字符串用于清除本地备注,恢复来源标题。 */
+export function normalizeLocalReviewTitle(value: unknown): string | null {
+  if (typeof value !== 'string' || value.trim().length > 120) throw new Error('本地标题须为不超过 120 字的文字');
+  return value.trim() || null;
 }

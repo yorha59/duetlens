@@ -1196,3 +1196,16 @@
 
 .local-review-summary { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text-dim); font-size: 12px; line-height: 1.7; }
 .local-review-summary .basemetric { display: block; margin-top: 5px; }
+
+.entry-local-title { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; font-size: 13px; color: var(--text-dim); }
+.entry-local-title input, .recent-edit-panel input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; }
+.recent-review-item { min-width: 0; }
+.recent-actions { display: flex; gap: 8px; flex: none; }
+.recent-actions button, .recent-edit-panel button { border: 1px solid var(--border); background: transparent; color: var(--text-dim); border-radius: 6px; padding: 5px 9px; font: 12px var(--sans); cursor: pointer; }
+.recent-actions button:disabled, .recent-edit-panel button:disabled { opacity: .5; cursor: default; }
+.recent-original-title { font-size: 12px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
+.recent-edit-panel { padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; color: var(--text-dim); background: var(--surface); font-size: 13px; }
+.recent-edit-panel label { display: flex; flex-direction: column; gap: 8px; }
+.recent-edit-panel p { margin: 8px 0; }
+.recent-edit-panel div { display: flex; justify-content: flex-end; gap: 8px; }
+.recent-edit-panel .recent-confirm-delete, .recent-edit-panel .recent-action-error { color: var(--del); }

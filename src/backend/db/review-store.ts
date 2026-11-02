@@ -5,6 +5,7 @@ import { parseCodexThread, type CodexBinding } from '@shared/codex-handoff';
 import type { DB } from './database';
 import {
   findingNarrative,
+  normalizeLocalReviewTitle,
   DEFAULT_UI_SETTINGS,
   isAutoClosedFixed,
   isStillPresent,
@@ -45,6 +46,7 @@ const now = () => Date.now();
 const AUTO_CLOSE_REASON = (round: number): string => `第 ${round} 轮复核判定已修复`;
 
 interface ReviewRow {
+  local_title?: string | null;
   id: string;
   source: string;
   source_ref: string;
@@ -183,6 +185,7 @@ function toReview(r: ReviewRow): Review {
     reasoningEffort: r.reasoning_effort as Review['reasoningEffort'],
     intensity: r.intensity as Review['intensity'],
     title: r.title,
+    localTitle: r.local_title ?? null,
     status: r.status as ReviewStatus,
     summaryBody: r.summary_body,
     summaryFiles: parseSummaryFiles(r.summary_files),
@@ -349,6 +352,7 @@ export class ReviewStore {
     parentReviewId?: string | null;
     repoPath?: string | null;
     title?: string | null;
+    localTitle?: string | null;
     /** 跑这条 review 的 agent;建出来就定死,复审与追问都沿用 */
     agent?: AgentKind;
     model?: string | null;
@@ -373,6 +377,7 @@ export class ReviewStore {
       reasoning_effort: input.reasoningEffort ?? null,
       intensity: input.intensity ?? 'standard',
       title: input.title ?? null,
+      local_title: input.localTitle == null ? null : normalizeLocalReviewTitle(input.localTitle),
       status: input.status ?? 'scanning',
       summary_body: null,
       summary_files: '[]',
@@ -383,8 +388,8 @@ export class ReviewStore {
     };
     this.db
       .prepare(
-        `INSERT INTO reviews (id, source, source_ref, base_ref, head_ref, parent_review_id, repo_path, agent, agent_session_id, model, reasoning_effort, intensity, title, status, summary_body, summary_files, summary_round, current_round, created_at, updated_at)
-         VALUES (@id, @source, @source_ref, @base_ref, @head_ref, @parent_review_id, @repo_path, @agent, @agent_session_id, @model, @reasoning_effort, @intensity, @title, @status, @summary_body, @summary_files, @summary_round, @current_round, @created_at, @updated_at)`,
+        `INSERT INTO reviews (id, source, source_ref, base_ref, head_ref, parent_review_id, repo_path, agent, agent_session_id, model, reasoning_effort, intensity, title, local_title, status, summary_body, summary_files, summary_round, current_round, created_at, updated_at)
+         VALUES (@id, @source, @source_ref, @base_ref, @head_ref, @parent_review_id, @repo_path, @agent, @agent_session_id, @model, @reasoning_effort, @intensity, @title, @local_title, @status, @summary_body, @summary_files, @summary_round, @current_round, @created_at, @updated_at)`,
       )
       .run(row);
     return toReview(row);
@@ -564,7 +569,22 @@ export class ReviewStore {
 
   getReview(id: string): Review | null {
     const r = this.db.prepare('SELECT * FROM reviews WHERE id = ?').get(id) as ReviewRow | undefined;
-    return r ? toReview(r) : null;
+    if (!r) return null;
+    const review = toReview(r);
+    const owner = review.workspaceRemoteId ?? review.parentReviewId;
+    if (owner) review.localTitle = this.getReview(owner)?.localTitle ?? null;
+    return review;
+  }
+
+  setLocalTitle(id: string, value: string): Review[] {
+    const title = normalizeLocalReviewTitle(value);
+    const review = this.getReview(id);
+    if (!review) throw new Error('审核任务不存在');
+    const owner = review.workspaceRemoteId ?? review.parentReviewId ?? id;
+    return this.db.transaction(() => {
+      this.db.prepare('UPDATE reviews SET local_title = ?, updated_at = ? WHERE id = ? OR parent_review_id = ? OR workspace_remote_id = ?').run(title, now(), owner, owner, owner);
+      return (this.db.prepare('SELECT id FROM reviews WHERE id = ? OR parent_review_id = ? OR workspace_remote_id = ?').all(owner, owner, owner) as { id: string }[]).map(row => this.getReview(row.id)!);
+    })();
   }
 
   listReviews(): Review[] {
