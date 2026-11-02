@@ -17,6 +17,7 @@ import { AnnotateComposer, type NewFindingDraft } from './AnnotateComposer';
 import { PencilIcon } from './PencilIcon';
 import { SelectionPopover } from './SelectionPopover';
 import { DiffFindBar } from './DiffFindBar';
+import { useDiffScrollSpy } from './useDiffScrollSpy';
 import { VirtualDiffBody } from './VirtualDiffBody';
 import { CopyFilePathButton } from './CopyFilePathButton';
 import { EditorLineStore } from './editor-line-store';
@@ -172,7 +173,7 @@ export interface DiffPaneProps {
   findings: Finding[];
   /** 讨论(含 user 线程);用于在 gutter 给有讨论/finding 的行打锚点圆点 */
   discussions?: Discussion[];
-  /** 左栏选中的文件路径;变化时滚动到对应 file-header */
+  /** 左栏高亮文件;传 nonce 时只有显式定位请求才滚到文件头。 */
   activePath: string | null;
   /** 定位请求序号:每次点选自增,让重复点同一个文件也能重新滚回去 */
   activePathNonce?: number;
@@ -375,28 +376,32 @@ export function DiffPane(props: DiffPaneProps) {
     [onJumpFinding, onJumpDiscussion],
   );
 
+  const scrollSpyRevision = useMemo(() => ({ files, absentByFile }), [files, absentByFile]);
+  const beginFileNavigation = useDiffScrollSpy(ref, active, scrollSpyRevision, props.onSelectFile);
+
   // 文件头是 sticky:一旦被吸在列头下,scrollIntoView 会认定它「已在视口起点」而原地不动,
   // 于是顶上停着的还是上一个文件。故按非 sticky 的区块算落点、自己写 scrollTop。
   const scrollToFile = useCallback((path: string, behavior: ScrollBehavior = 'smooth') => {
     const pane = ref.current;
     const el = pane?.querySelector(`#${CSS.escape(fileAnchorId(path))}`);
     if (!pane || !el) return;
+    beginFileNavigation();
     const box = el.closest('.diff-file') ?? el;
     const pad = parseFloat(getComputedStyle(pane).scrollPaddingTop) || 0;
     const top =
       pane.scrollTop + box.getBoundingClientRect().top - pane.getBoundingClientRect().top - pad;
     pane.scrollTo({ top, behavior });
-  }, []);
+  }, [beginFileNavigation]);
 
-  // 折叠态一并入依赖:跳到已是 activePath 的那个文件时,同值的 setActivePath 不触发重渲染,
-  // 光靠 activePath 补不上这次定位(锚在其上的又恰好没有 finding 可走下面那条 effect 时尤其明显)。
-  const activeCollapsed = activePath != null && props.collapsed.has(activePath);
+  // 主屏以 nonce 区分主动导航和滚动回报,避免高亮更新把阅读位置弹回文件头。
+  // 未传 nonce 的独立宿主保留按 activePath 导航的兼容行为。
+  const navigationRequest = props.activePathNonce ?? activePath;
   useLocateEffect(
     active,
     () => {
       if (activePath) scrollToFile(activePath);
     },
-    [activePath, activeCollapsed, props.activePathNonce, scrollToFile],
+    [navigationRequest, scrollToFile],
   );
 
   // 标记已看会把当前文件折叠掉,滚动位置不变则视口塌进下一个文件的中段;
@@ -789,7 +794,7 @@ export function DiffPane(props: DiffPaneProps) {
       ))}
 
       {[...absentByFile.entries()].map(([path, fs]) => (
-        <div key={path} className="offdiff absent" id={fileAnchorId(path)}>
+        <div key={path} className="offdiff absent" data-path={path} id={fileAnchorId(path)}>
           <div className="offdiff-head">◇ 文件不在本次改动内 · <span className="mono">{path}</span></div>
           {fs.map((f) => (
             <InlineCard

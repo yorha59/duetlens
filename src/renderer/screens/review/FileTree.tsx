@@ -1,6 +1,7 @@
-import { Fragment, useMemo, useState, type RefObject } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { DiffFile, FileStatus } from '@shared/diff';
 import type { Finding, UiSettings } from '@shared/domain';
+import { useIsActiveTab } from '../../review/TabVisibility';
 import { imeComposing } from '../../keys';
 import { containsHits, matchFilePath, parseFileQuery } from './file-filter';
 import { buildTreeRows, subtreeDirs, type FileHit, type TreeRow } from './file-tree-model';
@@ -73,6 +74,8 @@ export function FileTree({
   view,
   onViewChange,
 }: FileTreeProps) {
+  const paneRef = useRef<HTMLDivElement>(null);
+  const visible = useIsActiveTab();
   // 收起的目录。per-review 的临时态:换 review 由 key 重挂载清掉,不落库
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -104,6 +107,27 @@ export function FileTree({
         : [],
     [view, shown, collapsed, filtering, findingCount, viewed],
   );
+  useEffect(() => {
+    if (!visible || !activePath || view !== 'tree' || filtering) return;
+    setCollapsed(previous => {
+      const parents = [...previous].filter(path => activePath.startsWith(`${path}/`));
+      if (!parents.length) return previous;
+      const next = new Set(previous);
+      for (const path of parents) next.delete(path);
+      return next;
+    });
+  }, [activePath, view, filtering, visible]);
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    const item = pane?.querySelector<HTMLElement>('.file.active');
+    if (!visible || !pane || !item) return;
+    const area = pane.getBoundingClientRect();
+    const top = pane.querySelector('.tree-top')?.getBoundingClientRect().bottom ?? area.top;
+    const row = item.getBoundingClientRect();
+    if (row.top < top) pane.scrollTop += row.top - top;
+    else if (row.bottom > area.bottom) pane.scrollTop += row.bottom - area.bottom;
+  }, [activePath, rows, view, visible]);
+
   // 已看进度是整份 review 的,不随过滤缩水
   const viewedCount = files.filter((f) => viewed.has(f.path)).length;
 
@@ -163,7 +187,7 @@ export function FileTree({
   );
 
   return (
-    <div className={`tree pane tv-${view}${filtering ? ' filtering' : ''}`}>
+    <div ref={paneRef} className={`tree pane tv-${view}${filtering ? ' filtering' : ''}`}>
       <div className="tree-top">
         <div className="head">
           <h3>Files</h3>
@@ -273,6 +297,7 @@ function FileRow({
   const name = basename(f.path);
   return (
     <div
+      data-path={f.path}
       className={`file${active ? ' active' : ''}${viewed ? ' viewed' : ''}`}
       style={{ ['--d' as string]: depth }}
       onClick={() => onSelect(f.path)}

@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.30] - 2026-11-02
+
+- The file tree follows the file currently being read, expands its ancestors, and keeps the active row visible. Explicit navigation stays separate from passive highlighting to prevent snap-back. Supports tree and flat views with frame-coalesced updates and no idle polling.
+
 ## [0.12.0-fork.29] - 2026-10-26
 
 - Local refresh archives user annotation threads whose files or corresponding changes have left the current diff, and relocates valid single-line anchors when uniquely matched. Shared sessions follow the same visibility rules; history is retained and no agent is started.
