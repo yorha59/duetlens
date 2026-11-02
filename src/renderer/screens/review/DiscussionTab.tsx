@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { messageKind } from '@shared/domain';
 import type { Discussion, Finding, FindingProposal, Message } from '@shared/domain';
 import { liveReplyOf, type ReplyStream } from '../../review/useReviewStream';
-import { Composer, type UnsentDraft } from './Composer';
+import { Composer, type ChatInsertion, type UnsentDraft } from './Composer';
 import { CopyButton } from './CopyButton';
 import { LiveReply } from './LiveReply';
 import { renderMarkdown } from './markdown';
@@ -27,6 +27,7 @@ function UserGlyph() {
 }
 
 export interface DiscussionTabProps {
+  chatInsertion?: ChatInsertion | null;
   composerFocus?: { id: string; nonce: number; mode?: 'note' | 'chat' } | null;
   discussions: Discussion[];
   findings: Finding[];
@@ -106,10 +107,11 @@ function NewGlobalButton({ onClick }: { onClick: () => Promise<unknown> }) {
 
 export function DiscussionTab(props: DiscussionTabProps) {
   const { discussions, findings, messages, activeId, awaitingReply, scanning, ensureMessages } = props;
-  const [pane, setPane] = useState<'note' | 'chat' | 'legacy'>(props.composerFocus?.mode ?? 'note');
+  const [pane, setPane] = useState<'note' | 'chat' | 'legacy'>(props.chatInsertion ? 'chat' : props.composerFocus?.mode ?? 'note');
   useEffect(() => {
     if (props.composerFocus?.id === activeId) setPane(props.composerFocus.mode ?? 'chat');
   }, [props.composerFocus, activeId]);
+  useEffect(() => { if (props.chatInsertion) setPane('chat'); }, [props.chatInsertion]);
 
   const findingByDisc = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -424,6 +426,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
       {/* 空态不禁用:直接开打就是一条无锚点的全局讨论(见 ReviewScreen.onComposerSend) */}
       <div hidden={pane === 'legacy'}>
       <Composer
+        chatInsertion={props.chatInsertion}
         mode={pane === 'chat' ? 'chat' : 'note'}
         focusNonce={active && props.composerFocus?.id === active.id ? props.composerFocus.nonce : undefined}
         disabled={false}

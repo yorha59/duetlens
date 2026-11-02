@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.32] - 2026-11-02
+
+- Add selected code to the built-in review agent chat draft with file, line and side context. Preserve existing chat and note drafts; staging does not send messages or require a Codex binding.
+
 ## [0.12.0-fork.31] - 2026-11-02
 
 - Add local requirement labels for reviews while preserving original PR titles; edit or clear labels and confirm deletion of local review records from the recent list.

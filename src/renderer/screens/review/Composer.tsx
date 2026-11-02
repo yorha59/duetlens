@@ -16,12 +16,20 @@ export interface UnsentDraft {
   mode?: 'note' | 'chat';
 }
 
+/** 选区只追加到对话草稿;消费后上层清除,切换面板不会重复添加。 */
+export interface ChatInsertion {
+  nonce: number;
+  text: string;
+  onConsumed: () => void;
+}
+
 /**
  * Discussion 栏底部输入区:textarea + 发送。追问活跃 discussion;
  * 无活跃线程时由调用方接成「新开一条无锚点的全局讨论」。
  */
 export interface ComposerProps {
   mode?: 'note' | 'chat';
+  chatInsertion?: ChatInsertion | null;
   focusNonce?: number;
   disabled: boolean;
   placeholder: string;
@@ -43,6 +51,7 @@ export interface ComposerProps {
 
 export function Composer({
   mode = 'note',
+  chatInsertion,
   focusNonce,
   disabled,
   placeholder,
@@ -61,6 +70,14 @@ export function Composer({
     if (focusNonce === undefined) return;
     inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
+  const consumedInsertion = useRef<number | null>(null);
+  useEffect(() => {
+    if (!chatInsertion || consumedInsertion.current === chatInsertion.nonce) return;
+    consumedInsertion.current = chatInsertion.nonce;
+    setDrafts(current => ({ ...current, chat: current.chat ? `${current.chat}\n\n${chatInsertion.text}` : chatInsertion.text }));
+    inputRef.current?.focus({ preventScroll: true });
+    chatInsertion.onConsumed();
+  }, [chatInsertion]);
   useDraftFlag(!!(drafts.note.trim() || drafts.chat.trim()), onDraftChange);
 
   // 先清空是因为发送可能挂着一整轮 turn(几十秒起步),不能一直锁着输入框;等待期间还能接着打下一句。

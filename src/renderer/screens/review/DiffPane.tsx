@@ -167,6 +167,7 @@ function EditorFileActions({ file, store, render }: {
 export interface DiffPaneProps {
   notice?: string;
   renderFileActions?: (path: string, line?: number) => React.ReactNode;
+  onAddToChat?: (anchor: DiscussionAnchor, text: string) => void;
   onAddToCodex?: (anchor: DiscussionAnchor, text: string) => Promise<string>;
   onOpenLine?: (path: string, line: number) => Promise<void>;
   files: DiffFile[];
@@ -675,7 +676,7 @@ export function DiffPane(props: DiffPaneProps) {
       // 横向锚在代码区左缘而非选区中点:跟着选区走会随行长忽左忽右,长行更会被甩出视野。
       // 纵向仍贴选区首行上方,贴到顶栏则翻到选区下方。
       const codeBox = (rows[0].closest('.code-scroll') as HTMLElement | null) ?? pane;
-      const pw = 420; // 动作条估算宽度,仅用于右边界收敛
+      const pw = 560; // 动作条估算宽度,仅用于右边界收敛
       const left = Math.max(8, Math.min(window.innerWidth - pw - 8, codeBox.getBoundingClientRect().left + 10));
       const rect = selection.getRangeAt(0).getBoundingClientRect();
       let top = rows[0].getBoundingClientRect().top - 44;
@@ -817,6 +818,11 @@ export function DiffPane(props: DiffPaneProps) {
           top={sel.top}
           left={sel.left}
           onAddToCodex={props.onAddToCodex ? () => props.onAddToCodex!(sel.pick.anchor, sel.pick.selectedText ?? sel.pick.snippet) : undefined}
+          onAddToChat={props.onAddToChat ? () => {
+            props.onAddToChat!(sel.pick.anchor, sel.pick.selectedText ?? sel.pick.snippet);
+            setSel(null);
+            window.getSelection()?.removeAllRanges();
+          } : undefined}
           onAnnotate={() => startCompose(sel.pick)}
         />
       )}

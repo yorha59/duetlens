@@ -26,7 +26,7 @@ import { FileTree } from './review/FileTree';
 import { DiffPane, type DiffView } from './review/DiffPane';
 import { OpenFileButton } from './review/OpenFileButton';
 import { DiscussionTab } from './review/DiscussionTab';
-import type { UnsentDraft } from './review/Composer';
+import type { ChatInsertion, UnsentDraft } from './review/Composer';
 import { SummaryTab } from './review/SummaryTab';
 import { ScanProgressBar } from './review/ScanProgressBar';
 import { ScanActivityFeed } from './review/ScanActivity';
@@ -464,6 +464,7 @@ function ReviewPane({
   const unsentSeq = useRef(0);
   // discussion 协同态:活跃线程 / 在途追问
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
+  const [chatInsertion, setChatInsertion] = useState<ChatInsertion | null>(null);
   const [composerFocus, setComposerFocus] = useState<{ id: string; nonce: number; mode?: 'note' | 'chat' } | null>(null);
   const followupSequence = useRef(0);
   // 每次追问在途期间占一条,记着问的是哪条线程。composer 发出即清空输入框、不锁,
@@ -1340,6 +1341,17 @@ function ReviewPane({
             </div>
           ) : (
           <DiffPane
+            onAddToChat={(anchor, text) => {
+              const nonce = ++followupSequence.current;
+              const location = `${anchor.file}:${anchor.line}${anchor.lineEnd ? `–${anchor.lineEnd}` : ''}`;
+              const fence = '`'.repeat([...text.matchAll(/`+/g)].reduce((length, match) => Math.max(length, match[0].length + 1), 3));
+              setChatInsertion({
+                nonce,
+                text: `${location}（${anchor.side === 'old' ? '删除前代码' : '当前代码'}）\n${fence}\n${text}\n${fence}\n`,
+                onConsumed: () => setChatInsertion(current => current?.nonce === nonce ? null : current),
+              });
+              setTab('discussion');
+            }}
             onAddToCodex={codexBinding && reviewId ? async (anchor, text) => {
               const result = await window.duetlens.review.addToCodex(reviewId, { ...anchor, text });
               setTab('codex'); return result.message;
@@ -1392,6 +1404,7 @@ function ReviewPane({
             onCommit={(w) => update({ rightWidth: w })}
           />
           <RightPanel
+            chatInsertion={chatInsertion}
             composerFocus={composerFocus}
             onAddCommentToCodex={async (input) => {
               if (!codexBinding) { setCodexBindingOpen(true); throw new Error('请先绑定 Codex 对话,再添加评论'); }
@@ -1484,6 +1497,7 @@ const SEV_ORDER: Severity[] = ['high', 'medium', 'low'];
 const SEV_LABEL: Record<Severity, string> = { high: 'High', medium: 'Med', low: 'Low' };
 
 function RightPanel({
+  chatInsertion,
   composerFocus,
   onAddCommentToCodex,
   codexChat,
@@ -1536,6 +1550,7 @@ function RightPanel({
   onOpenFile,
 }: {
   onAddCommentToCodex: (input: import('@shared/remote-comments').RemoteCommentContext) => Promise<void>;
+  chatInsertion: ChatInsertion | null;
   composerFocus: { id: string; nonce: number; mode?: 'note' | 'chat' } | null;
   codexChat: ReactNode;
   tab: RightTab;
@@ -1834,6 +1849,7 @@ function RightPanel({
 
       {tab === 'discussion' && (
         <DiscussionTab
+          chatInsertion={chatInsertion}
           composerFocus={composerFocus}
           discussions={discussions}
           findings={findings}
