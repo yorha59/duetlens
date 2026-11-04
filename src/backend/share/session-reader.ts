@@ -71,6 +71,15 @@ export class SharedSessionReader {
     };
   }
 
+  /** 目录写操作同时钉住审核版本和旧目录,避免外部客户端覆盖期间发生的绑定变更。 */
+  assertRepositoryVersion(id: string, expected: { reviewId: string; head: string | null; round: number; base: string | null; repositoryPath: string | null; updatedAt: number }): void {
+    const review = this.review(id);
+    if (expected.reviewId !== id || expected.head !== this.head(review) || expected.round !== review.currentRound ||
+        expected.base !== (review.localBaseRef ?? review.baseRef) || expected.repositoryPath !== review.repoPath || expected.updatedAt !== review.updatedAt) {
+      throw new ShareReadError(409, '审核版本或仓库绑定已变化,请重新读取会话后确认');
+    }
+  }
+
   private checkVersion(review: Review, head: string | null, round: string | null, base?: string | null): string {
     const currentHead = this.head(review);
     if (base != null && base !== (review.localBaseRef ?? review.baseRef ?? '')) throw new ShareReadError(409, '审查基线已更新,请重新读取会话链接');

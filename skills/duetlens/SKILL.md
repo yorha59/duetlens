@@ -1,6 +1,6 @@
 ---
 name: duetlens
-description: 通过 Duetlens 本地 HTTP 分享端口读取批注、对话和版本文件，按用户要求完成被审仓库的代码修改与验证。适用于分享链接或“处理 Duetlens 批注”的请求，不用于维护 Duetlens 应用自身。
+description: 通过 Duetlens 本地 HTTP 分享端口读取批注、对话和版本文件，按用户要求完成代码修改与验证，或显式关联审核的本地仓库目录。适用于分享链接或“处理 Duetlens 批注”的请求，不用于维护 Duetlens 应用自身。
 ---
 
 # Duetlens 评论到代码修改
@@ -9,7 +9,7 @@ description: 通过 Duetlens 本地 HTTP 分享端口读取批注、对话和版
 
 ## 通讯入口
 
-仅通过本机 HTTP 客户端读取 Duetlens；不要通过浏览器、computer-use、截图/OCR、GUI 自动化、AppleScript、CDP 或 UI 注入操作它。不要修改应用数据库来伪装接口能力。
+仅通过本机 HTTP 客户端与 Duetlens 交互；不要通过浏览器、computer-use、截图/OCR、GUI 自动化、AppleScript、CDP 或 UI 注入操作它。不要修改应用数据库来伪装接口能力。
 
 优先使用用户给出的 `http://127.0.0.1:端口/sessions/随机令牌` 链接。端口由应用分配，应使用分享链接或端口文件中的实际值。
 
@@ -24,7 +24,7 @@ python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" file '分享链接' --path '�
 python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" diff '分享链接'
 ```
 
-`discover` 只发现端口及进程是否在监听，**不能发现会话令牌**。没有可用分享链接时，明确报告缺少会话发现/分享接口，请用户提供已有分享链接；不要扫描端口、读取数据库评论或猜测令牌。若上文已有有效链接，直接复用，不重复索要。分享链接是本地只读凭据，不提交进仓库或发给外部服务。
+`discover` 只发现端口及进程是否在监听，**不能发现会话令牌**。没有可用分享链接时，明确报告缺少会话发现/分享接口，请用户提供已有分享链接；不要扫描端口、读取数据库评论或猜测令牌。若上文已有有效链接，直接复用，不重复索要。分享链接是本地会话凭据（支持时也可用于显式修改仓库绑定），不提交进仓库或发给外部服务。
 
 接口字段、版本闸门、错误及当前能力边界见 [references/http-api.md](references/http-api.md)。需要定位版本差异或讨论锚点时再读对应部分。
 
@@ -38,9 +38,21 @@ python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" diff '分享链接'
 6. **收尾复读。** 完成后再读一次同一会话，按消息 ID、正文摘要及消息类型识别处理期间新增或编辑过的用户评论（同一 ID 的正文或归类也可能修改）。已隐藏/删除的讨论不等于已修复；处理结果以实际改动和验证为准。新增相关评论继续处理，同一轮最多补读处理 3 次，持续变化则报告尚未纳入的项，不做无限轮询或擅自建立后台监控。
 7. **明确交付。** 简述已修改内容、文件、验证结果，列出未完成项及具体原因。若接口只读，说明“代码已修改，Duetlens 中未自动回复/标记解决”，不能宣称已经回写或复审。
 
+## 修改审核绑定目录（仅用户明确要求时）
+
+先读取会话,核对 `review.id`、`repository.sourceRef/path` 和目标工作区的 Git 身份、分支、未提交改动。确认用户授权包含“修改 Duetlens 绑定目录”后,可使用：
+
+```bash
+python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" bind-repository '分享链接' --repo-path '/本机/目标仓库' --confirm
+```
+
+客户端会读取最新版本并通过 `POST /sessions/{token}/repository` 请求绑定,不会同步 Git、切换视图、复审或调用 agent。返回更新后的会话上下文；再次 GET 核对 `repository.path`。保留两边工作区的现有修改。此接口沿用应用的仓库身份、任务空闲和独立本地视图保护；不能用它绕过拒绝条件。409 先重新读取并核对变化,不自动重发写请求；超时先 GET 确认结果。
+
+旧实例 `access.bindRepository` 缺失或为 false 时报告需要升级。它不代表获得评论回写、处置、Git 同步或其他写权限。详细请求、返回和状态码见 [HTTP 协议](references/http-api.md)。
+
 ## 能力不足必须抛出
 
-当前已验证的分享端口只支持 GET。需要的能力缺失时，明确给出“缺什么 → 影响什么 → 已完成什么 → 需要补什么接口/信息”。不要静默跳过、捏造端点、用 Electron preload IPC 冒充 HTTP API、借别的任务的 MCP 工具操作当前任务，或转用 computer-use。
+分享端口支持 GET 读取,新版另提供显式仓库绑定 POST；以响应 access.bindRepository 是否为 true 判断实际能力。需要的能力缺失时，明确给出“缺什么 → 影响什么 → 已完成什么 → 需要补什么接口/信息”。不要静默跳过、捏造端点、用 Electron preload IPC 冒充 HTTP API、借别的任务的 MCP 工具操作当前任务，或转用 computer-use。
 
 - 缺少会话枚举/创建分享：没有链接就无法从端口定位任务；请求一次分享链接，指出需要会话发现接口。
 - 缺少评论回复/处理状态写入：继续修代码并验证，在最终结果中报告无法自动回写及对应讨论 ID。

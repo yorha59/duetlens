@@ -401,14 +401,17 @@ export class ReviewManager extends EventEmitter {
     } finally { await source.dispose(); this.workspaceBusy.delete(local.id); this.workspaceBusy.delete(remote.id); }
   }
 
-  async attachWorkspace(reviewId: string, repoPath: string): Promise<Review> {
+  async attachWorkspace(reviewId: string, repoPath: string, beforeCommit?: () => void): Promise<Review> {
     const review = this.assertWorkspaceIdle(reviewId);
     this.workspaceBusy.add(reviewId);
     try {
       if (review.localReview || this.store.getWorkspaceState(reviewId).localId) throw new Error('此任务已关联独立本地审核,为保留其讨论不能更换仓库');
+      beforeCommit?.();
       const info = await this.prWorkspace.inspect(review, repoPath);
+      beforeCommit?.();
       // 关联只改变目录;代码快照与审核来源在切换并复审后才改变。
       await this.teardown(reviewId);
+      beforeCommit?.();
       this.store.setReviewWorkspace(reviewId, info.repoPath, false, null);
       const updated = this.store.getReview(reviewId)!;
       this.forward({ reviewId, type: 'review', payload: updated });

@@ -1,13 +1,13 @@
 # Duetlens 本机 HTTP 分享协议
 
-本文描述仓库中 `src/backend/share/` 实现的只读协议。应用更新后应以实际响应和当前源码为准。
+本文描述仓库中 `src/backend/share/` 实现的本机协议。应用更新后应以实际响应和当前源码为准。
 
 ## 发现和生命周期
 
 - macOS 端口文件：`~/Library/Application Support/Duetlens/share-server.json`，内容为 `{"port": number}`。开发版可显式提供其他数据目录，不自动混用。
 - 服务仅监听 `127.0.0.1`。首次分享时启动；存在有效分享时应用重启会尝试恢复监听原端口。
 - 应用运行且分享未撤销时链接可读；应用退出后不可读。原端口冲突会导致启动失败。
-- `/`、`/health`、会话列表、创建分享及写接口均不是当前公开协议。端口文件不包含分享令牌。当前不能通过 HTTP 枚举未分享任务或创建分享。
+- `/`、`/health`、会话列表、创建分享等均不是当前公开协议；唯一写端点为下述仓库绑定。端口文件不包含分享令牌。当前不能通过 HTTP 枚举未分享任务或创建分享。
 - 不发送 `Origin`、伪造 Host 或通过网页跨域访问。Python/curl 直接请求即可。服务校验 Host，不开放 CORS。
 - token 是 32 随机字节的 base64url 表示（43 个字符），本地和远端视图各有自己的分享 token。
 
@@ -18,7 +18,7 @@
 JSON 会话上下文：
 
 - `kind: "duetlens.shared-review"`、`schemaVersion: 1`、`generatedAt`。
-- `access: {localOnly: true, readOnly: true, liveComments: true}`。
+- `access: {localOnly: true, readOnly: boolean, liveComments: true, bindRepository?: boolean}`。新版装配绑定能力时 readOnly=false、bindRepository=true；其余写操作仍不支持。旧版本只有只读能力。
 - `repository: {path, source, sourceRef}`。path 是本机仓库根目录，可能为空。
 - `review: {id,title,mode,round,head,reviewedHead,reviewedBase,baseRef,status,summary,...}`。
   `head` 是当前可读快照，`reviewedHead` 是上一轮审核版本；本地代码更新后两者可能不同。
@@ -46,15 +46,42 @@ JSON 会话上下文：
 
 使用 `diffUrl`，响应为 `text/plain` unified diff。old/new 行号映射以此为准。
 
+## `POST /sessions/{token}/repository`
+
+仅在用户明确授权修改此审核的本地仓库绑定时使用。沿用该会话 token、Host/Origin/浏览器访问限制,不开放 CORS。请求 `Content-Type: application/json`,上限 16 KiB,不接受查询参数。所有 expected 字段都从刚读取的 GET 上下文原样取得（base 对应 review.baseRef）：
+
+```json
+{
+  "repoPath": "/absolute/path/to/repository",
+  "expected": {
+    "reviewId": "GET review.id",
+    "head": "GET review.head or null",
+    "round": 1,
+    "base": null,
+    "repositoryPath": "/previous/path",
+    "updatedAt": 1234567890000
+  }
+}
+```
+
+`head/base/repositoryPath` 没有值时传 JSON null,不省略；repoPath 必须为本机绝对路径。200 返回与 GET 相同结构的完整上下文,`repository.path` 为 Git 根目录的规范真实路径。审核 ID、代码快照、轮次、模式及历史消息保持原值；仅绑定目录和更新时间改变。
+
+服务在校验仓库前与最终提交前都核对 expected 版本和 token；409 表示审核版本或旧目录已变,重新 GET 后由调用方确认。复用 ReviewManager.attachWorkspace → PrWorkspace.inspect,保留开放 PR、来源仓库远端身份、任务空闲等校验；已关联独立本地审核或提交子范围的任务拒绝换仓库,不能用远端 token 绕过本地视图保护。此操作不要求切换当前 Git 分支,也不会 checkout、commit、pull、push、fetch、切换审核视图、启动模型或复审。
+
+失败不自动重发 POST。超时或连接中断时先 GET 核对结果；绑定成功但响应丢失也可能已经完成。升级应用重启后已有分享 token/端口继续有效；旧运行实例不会热更新,能力以实际 GET 的 access.bindRepository 为准。
+
 ## 状态码与恢复
 
 | 状态 | 含义 | 处理 |
 | --- | --- | --- |
 | 403 | Host/Origin/浏览器访问限制 | 本机 HTTP 客户端直接访问 127.0.0.1，不经代理或浏览器 |
 | 404 | 令牌失效、任务删除或文件不在范围/已删除 | 区分上下文和文件端点；不猜新 token，不把删除文件错误当成整个服务不可用 |
-| 405 | 非 GET 请求 | 当前公开端口只读，不能 POST 回复/解决状态 |
-| 409 | head、round 或 base 已变化/快照不可用 | 重新 GET 会话，再使用新的 file/diff URL；连续变化时报告阻塞 |
-| 415 | 二进制文件 | 报告不可读能力及文件，使用适合该文件类型的已授权本地工具 |
+| 400 | JSON、绝对路径或 expected 字段无效 | 按协议提供完整请求 |
+| 405 | 端点/方法不支持或旧实例未开放绑定 | GET 读取,仅 repository 支持 POST；不能 POST 评论或解决状态 |
+| 413 | 请求体超过 16 KiB | 缩小绑定请求 |
+| 422 | 应用领域校验拒绝关联 | 按返回原因处理；不绕过独立本地视图、PR 或仓库身份限制 |
+| 409 | head/round/base 已变化、快照不可用或绑定的旧目录/updatedAt 不匹配 | 重新 GET 会话，再使用新的 file/diff URL；连续变化时报告阻塞 |
+| 415 | 二进制文件或 POST 非 JSON | 报告不可读能力及文件，使用适合该文件类型的已授权本地工具 |
 | 429 | 并发读取超限 | 服务最多 4 个并发请求，按需串行读取并有界重试 |
 | 500 | 应用无法刷新或读取会话 | 报告具体失败；不通过 GUI/DB 绕过接口 |
 
@@ -74,7 +101,7 @@ JSON 会话上下文：
 
 以下路径相对于 Duetlens 源码仓库根目录：
 
-- `src/backend/share/session-share-server.ts`：监听、路由、Host 校验、只读限制、生命周期。
+- `src/backend/share/session-share-server.ts`：监听、路由、Host 校验、方法/令牌限制、生命周期。
 - `src/backend/share/session-reader.ts`：上下文、讨论锚点、文件/版本闸门。
 - `src/main.ts`：数据目录、启动恢复、刷新回调。
 

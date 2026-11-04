@@ -115,7 +115,7 @@ mkdir -p "$DUETLENS_SKILL_DIR"
 cp -R skills/duetlens/. "$DUETLENS_SKILL_DIR/"
 ```
 
-在 Duetlens 点击「分享会话」，把链接发给 Codex，例如“使用 `$duetlens` 读取这些批注并完成修改”。分享端口只读；无法回写评论、标记解决或触发复审时，skill 会明确报告缺口。客户端只需 Python 3，安装位置不依赖本机用户名。
+在 Duetlens 点击「分享会话」，把链接发给 Codex，例如“使用 `$duetlens` 读取这些批注并完成修改”。分享端口可读取评论和版本文件,也支持用户明确授权后修改审核绑定的本地仓库目录；评论回写、标记解决或触发复审等缺失能力由 skill 明确报告。客户端只需 Python 3，安装位置不依赖本机用户名。
 
 ## License
 
