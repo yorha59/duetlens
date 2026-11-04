@@ -3,6 +3,7 @@ import { messageKind } from '@shared/domain';
 import type { Discussion, Finding, FindingProposal, Message } from '@shared/domain';
 import { liveReplyOf, type ReplyStream } from '../../review/useReviewStream';
 import { Composer, type ChatInsertion, type UnsentDraft } from './Composer';
+import { groupDiscussionList, handledDiscussionLabel } from './discussion-list';
 import { CopyButton } from './CopyButton';
 import { LiveReply } from './LiveReply';
 import { renderMarkdown } from './markdown';
@@ -27,6 +28,7 @@ function UserGlyph() {
 }
 
 export interface DiscussionTabProps {
+  currentRound: number;
   chatInsertion?: ChatInsertion | null;
   composerFocus?: { id: string; nonce: number; mode?: 'note' | 'chat' } | null;
   discussions: Discussion[];
@@ -119,6 +121,15 @@ export function DiscussionTab(props: DiscussionTabProps) {
     return m;
   }, [findings]);
 
+  const { pending, handled } = useMemo(() => groupDiscussionList(discussions, findings, props.currentRound), [discussions, findings, props.currentRound]);
+  const handledRef = useRef<HTMLDetailsElement>(null);
+  const lastFocus = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const focus = props.composerFocus;
+    if (!focus || lastFocus.current === focus.nonce) return;
+    lastFocus.current = focus.nonce;
+    if (handled.some(discussion => discussion.id === focus.id) && handledRef.current) handledRef.current.open = true;
+  }, [props.composerFocus, handled]);
   const active = discussions.find((d) => d.id === activeId) ?? null;
   const threadRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -239,32 +250,40 @@ export function DiscussionTab(props: DiscussionTabProps) {
     ? `${basename(active.file)}:${active.line ?? ''}${active.lineEnd ? `–${active.lineEnd}` : ''}${active.side === 'old' ? '（删除前）' : ''}`
     : null;
 
+  const discussionRow = (d: Discussion) => {
+    const f = findingByDisc.get(d.id);
+    return (
+      <button
+        key={d.id}
+        data-discussion-id={d.id}
+        className={`disc-item${d.id === activeId ? ' on' : ''}`}
+        onClick={() => props.onSelect(d.id)}
+      >
+        <span className={`di-glyph ${d.kind === 'finding' ? 'agent' : 'human'}`}>
+          {d.kind === 'finding' ? '◆' : <UserGlyph />}
+        </span>
+        <span className="di-title">{titleOf(d, findingByDisc, messages[d.id] ?? [])}</span>
+        {handledDiscussionLabel(f, props.currentRound) && <span className="di-handled-label">{handledDiscussionLabel(f, props.currentRound)}</span>}
+        {f && <span className={`di-sev sev-${f.severity}`} />}
+        {d.file && (
+          <span className="di-anchor mono">
+            {basename(d.file)}:{d.line}{d.side === 'old' ? '（删除前）' : ''}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div className="disc-tab">
       {discussions.length > 0 && (
         <div className="disc-list" ref={listRef}>
           <NewGlobalButton onClick={props.onStartGlobal} />
-          {discussions.map((d) => {
-            const f = findingByDisc.get(d.id);
-            return (
-              <button
-                key={d.id}
-                className={`disc-item${d.id === activeId ? ' on' : ''}`}
-                onClick={() => props.onSelect(d.id)}
-              >
-                <span className={`di-glyph ${d.kind === 'finding' ? 'agent' : 'human'}`}>
-                  {d.kind === 'finding' ? '◆' : <UserGlyph />}
-                </span>
-                <span className="di-title">{titleOf(d, findingByDisc, messages[d.id] ?? [])}</span>
-                {f && <span className={`di-sev sev-${f.severity}`} />}
-                {d.file && (
-                  <span className="di-anchor mono">
-                    {basename(d.file)}:{d.line}{d.side === 'old' ? '（删除前）' : ''}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {pending.map(discussionRow)}
+          {handled.length > 0 && <details className="disc-handled" ref={handledRef}>
+            <summary>已处理 {handled.length}</summary>
+            {handled.map(discussionRow)}
+          </details>}
         </div>
       )}
 

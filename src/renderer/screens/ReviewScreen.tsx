@@ -25,6 +25,7 @@ import { useReviewUiState } from '../review/useReviewUiState';
 import { FileTree } from './review/FileTree';
 import { DiffPane, type DiffView } from './review/DiffPane';
 import { OpenFileButton } from './review/OpenFileButton';
+import { groupDiscussionList } from './review/discussion-list';
 import { DiscussionTab } from './review/DiscussionTab';
 import type { ChatInsertion, UnsentDraft } from './review/Composer';
 import { SummaryTab } from './review/SummaryTab';
@@ -1607,6 +1608,7 @@ function RightPanel({
   onPickCategory: (cat: string) => void;
   onOpenFile: (path: string) => void;
 }) {
+  const pendingDiscussionCount = useMemo(() => groupDiscussionList(discussions, findings, currentRound).pending.length, [discussions, findings, currentRound]);
   const filtered = useMemo(
     () => (categoryFilter ? findings.filter((f) => (f.category ?? '未分类') === categoryFilter) : findings),
     [findings, categoryFilter],
@@ -1688,8 +1690,8 @@ function RightPanel({
         {RIGHT_TABS.filter((t) => t !== 'github' || review?.source === 'github-pr' && !review.localReview).map((t) => (
           <button key={t} className={`tab${t === tab ? ' on' : ''}`} onClick={() => onTab(t)}>
             {t === 'discussion' ? 'Discussion' : t === 'findings' ? 'Findings' : t === 'codex' ? 'Codex' : t === 'github' ? 'PR 评论' : 'Summary'}
-            {t === 'discussion' && discussions.length > 0 && (
-              <span className="tab-count">{discussions.length}</span>
+            {t === 'discussion' && pendingDiscussionCount > 0 && (
+              <span className="tab-count">{pendingDiscussionCount}</span>
             )}
             {t === 'findings' && findings.length > 0 && <span className="tab-count">{findings.length}</span>}
             {t === 'findings' && scanning && <span className="tab-spin" aria-hidden />}
@@ -1849,6 +1851,7 @@ function RightPanel({
 
       {tab === 'discussion' && (
         <DiscussionTab
+          currentRound={currentRound}
           chatInsertion={chatInsertion}
           composerFocus={composerFocus}
           discussions={discussions}

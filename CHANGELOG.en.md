@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.33] - 2026-11-04
+
+- Collapse fixed, dismissed and current-round author-responded finding discussions under handled history. Count pending discussions only, preserve notes and chats, and restore reopened issues to the main list.
+
 ## [0.12.0-fork.32] - 2026-11-02
 
 - Add selected code to the built-in review agent chat draft with file, line and side context. Preserve existing chat and note drafts; staging does not send messages or require a Codex binding.

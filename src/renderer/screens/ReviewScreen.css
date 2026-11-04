@@ -5812,3 +5812,8 @@ body.rz-dragging * {
 
 .sel-pop .sp-add-chat { color: var(--agent-2); font-weight: 600; }
 .sel-pop .sp-add-chat:hover { background: var(--agent-soft); }
+
+.disc-handled { border-top: 1px solid var(--border); margin-top: 5px; padding-top: 4px; }
+.disc-handled summary { color: var(--text-faint); cursor: pointer; padding: 7px 8px; font-size: 12px; }
+.disc-handled .disc-item { color: var(--text-faint); }
+.di-handled-label { color: var(--text-faint); font-size: 10px; white-space: nowrap; }
