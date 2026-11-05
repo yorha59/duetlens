@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.0-fork.35] - 2026-11-05
+
+- Make skipped incremental reviews explicit with the selected source and previous review snapshot. Explain that remote reviews exclude uncommitted local edits and offer an explicit full-review option without automatically starting AI.
+
 ## [0.12.0-fork.34] - 2026-11-04
 
 - Add a local HTTP repository binding endpoint with snapshot and previous-path preconditions, reusing workspace validation without Git sync or review startup. Extend the Duetlens skill client and protocol documentation.

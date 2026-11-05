@@ -47,12 +47,19 @@ export function RerunPanel({
   const [stage, setStage] = useState<ReviewStartStage>('resolve');
   const [error, setError] = useState<string | null>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
   // 阶段推进只认当前这次开跑的 id,失败重来后旧的一路事件不会再往面板里灌
   const startIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     noteRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    noticeRef.current?.focus({ preventScroll: true });
+    noticeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [notice]);
 
   useEffect(
     () =>
@@ -71,6 +78,8 @@ export function RerunPanel({
   const nextRound = (review?.currentRound ?? 1) + 1;
   const last = rounds.length ? rounds[rounds.length - 1] : null;
   const isGithub = review?.source === 'github-pr';
+  const remote = isGithub && !review.localReview;
+  const sourceLabel = remote ? review.headRef ? `远端固定提交 @${review.headRef.slice(0, 7)}` : '远端 PR（只检查已推送的提交）' : review?.localReview || review?.source === 'local-worktree' ? '本地代码（包含未提交改动）' : review?.source === 'gitbutler-vbranch' ? 'GitButler 分支' : '本地分支（已提交代码）';
 
   const steps = useMemo(() => roundSteps({ isGithub }), [isGithub]);
 
@@ -133,6 +142,21 @@ export function RerunPanel({
             默认只审核<b>上一轮之后的增量</b>，跳过未变化代码与对应旧问题；代码无变化时不启动 AI。上一轮的结论和处置继续保留。
           </p>
 
+          <p className="rp-source">审核来源：<b>{sourceLabel}</b></p>
+          {notice && <div className="rp-skipped" role="status" aria-live="polite" tabIndex={-1} ref={noticeRef}>
+            <strong>本次未启动审核</strong>
+            <p>{notice}</p>
+            <p>比较基准：第 {review?.currentRound ?? 1} 轮{last?.headSha ? ` · @${last.headSha.slice(0, 7)}` : ''}。没有新增审核轮次，原结论继续保留。</p>
+            <p>{remote ? review.headRef
+              ? '当前固定提交不会包含后续提交或本地修改。请切换审核范围；若要重新检查相同代码，可选择全量复审。'
+              : '远端 PR 审核不包含本地未提交修改。要审核本地修改，请关闭此窗口，切到“本地代码”并刷新后再复审。'
+              : '当前审核代码没有可供增量复审的新变化。若仍要重新检查相同代码，可选择全量复审。'}</p>
+            {notice.includes('代码与上一轮相同') && <>
+              <button type="button" onClick={() => { setFullReview(true); setNotice(''); }}>改为全量复审</button>
+              <span>选择后仍需点击下方开始按钮。</span>
+            </>}
+          </div>}
+
           <ul className="rp-ctx">
             <li>
               <span className="rp-n">{open.length}</span>
@@ -179,7 +203,6 @@ export function RerunPanel({
           </ul>
 
           <label className="rp-full-review"><input type="checkbox" checked={fullReview} onChange={(event) => setFullReview(event.target.checked)} /> 全量复审（重新审核全部改动）</label>
-          {notice && <p role="status">{notice}</p>}
           <div className="rp-int">
             <div className="rp-int-top">
               <span className="rp-int-lbl">本轮强度</span>

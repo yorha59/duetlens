@@ -5817,3 +5817,11 @@ body.rz-dragging * {
 .disc-handled summary { color: var(--text-faint); cursor: pointer; padding: 7px 8px; font-size: 12px; }
 .disc-handled .disc-item { color: var(--text-faint); }
 .di-handled-label { color: var(--text-faint); font-size: 10px; white-space: nowrap; }
+
+.rp-source { font-size: 12px; color: var(--text-dim); margin: 0 0 14px; }
+.rp-skipped { border: 1px solid var(--agent-line); border-radius: 9px; background: var(--agent-soft); padding: 14px; margin: 0 0 16px; color: var(--text); }
+.rp-skipped:focus { outline: 2px solid var(--agent-line); outline-offset: 2px; }
+.rp-skipped strong { color: var(--agent-2); }
+.rp-skipped p { margin: 8px 0; font-size: 12px; line-height: 1.7; }
+.rp-skipped button { border: 1px solid var(--agent-line); border-radius: 6px; padding: 6px 10px; background: var(--surface); color: var(--agent-2); cursor: pointer; }
+.rp-skipped > span { display: block; color: var(--text-dim); font-size: 11px; margin-top: 7px; }
