@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.1-fork.36] - 2026-11-09
+
+- Merge upstream 0.12.1: static status dots reduce idle repaints in recent reviews and history, and the wordmark respects reduced motion.
+
 ## [0.12.0-fork.35] - 2026-11-05
 
 - Make skipped incremental reviews explicit with the selected source and previous review snapshot. Explain that remote reviews exclude uncommitted local edits and offer an explicit full-review option without automatically starting AI.
@@ -87,6 +91,22 @@ while on `0.x`, the minor position doubles as the breaking-change position.
 - Bind a local Codex chat and mirror its messages, streaming replies, and execution state beside the review. Open the bound chat in Codex to connect.
 - Add code selections to a persisted draft with file paths, line ranges, and revision snapshots. Send through the original Codex session.
 - Restore subscriptions after disconnects without replaying messages. Wait for active turns to finish; handle approvals and stopping in Codex.
+
+## [0.12.1] - 2026-11-09
+
+### Fixed
+
+- **Review list animations no longer use CPU continuously while the home screen is idle.** GitHub
+  PR reviews awaiting submission can stay in the reviewing state for a long time, and their pulsing
+  dots kept repainting the home screen. Recent reviews and history now use static dots and retain
+  their status labels. The wordmark cursor blinks at most twice and stays still when the system's
+  Reduce Motion setting is enabled. (#120)
+
+### Upgrade notes
+
+- The database schema remains at v25. Versions 0.12.0 and 0.12.1 can use the same database without
+  a migration.
+- The in-app updater handles the update. There is no need to download the dmg again.
 
 ## [0.12.0] - 2026-09-23
 
