@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.2-fork.37] - 2026-11-11
+
+- Merge upstream 0.12.2: animate the review status dot during scans only, reducing idle repaints.
+
 ## [0.12.1-fork.36] - 2026-11-09
 
 - Merge upstream 0.12.1: static status dots reduce idle repaints in recent reviews and history, and the wordmark respects reduced motion.
@@ -91,6 +95,20 @@ while on `0.x`, the minor position doubles as the breaking-change position.
 - Bind a local Codex chat and mirror its messages, streaming replies, and execution state beside the review. Open the bound chat in Codex to connect.
 - Add code selections to a persisted draft with file paths, line ranges, and revision snapshots. Send through the original Codex session.
 - Restore subscriptions after disconnects without replaying messages. Wait for active turns to finish; handle approvals and stopping in Codex.
+
+## [0.12.2] - 2026-11-10
+
+### Fixed
+
+- **Fixed high CPU usage when a PR review was left open and idle.** The status dot kept pulsing
+  after scanning finished, causing the review page to repaint continuously. The dot is now static
+  while the PR is awaiting review submission and pulses only during scanning. (#123)
+
+### Upgrade notes
+
+- The database schema remains at v25. Versions 0.12.1 and 0.12.2 can use the same database without
+  a migration.
+- The update is available through the in-app updater.
 
 ## [0.12.1] - 2026-11-09
 
