@@ -34,6 +34,10 @@ export class PrWorkspace {
     },
   ) {}
 
+  async currentBranch(directory: string): Promise<string> {
+    return (await this.run('git', ['branch', '--show-current'], directory)).trim();
+  }
+
   async inspect(review: Review, directory: string, requireBranch = false) {
     if (review.source !== 'github-pr' || review.headRef || review.parentReviewId) {
       throw new Error('请在整个 PR 的审核任务中关联工作区');
@@ -54,7 +58,7 @@ export class PrWorkspace {
       }
     }
     if (!remoteUrl) throw new Error(`本地仓库缺少指向 PR 来源仓库 ${nwo} 的唯一推送地址`);
-    const branch = (await this.run('git', ['branch', '--show-current'], repoPath)).trim();
+    const branch = await this.currentBranch(repoPath);
     if (requireBranch) {
       if (branch !== pr.head.ref) throw new Error(`请先切到 PR 来源分支 ${pr.head.ref}（当前: ${branch || 'detached HEAD'}）`);
       if ((await this.run('git', ['ls-files', '--unmerged', '-z'], repoPath)).length) throw new Error('本地仍有未解决的合并冲突');

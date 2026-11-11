@@ -270,6 +270,11 @@ export class ReviewManager extends EventEmitter {
     return review;
   }
 
+  async localBranch(reviewId: string): Promise<string | null> {
+    const directory = this.store.getReview(reviewId)?.repoPath;
+    return directory ? this.prWorkspace.currentBranch(directory) : null;
+  }
+
   async workspaceState(reviewId: string) {
     const current = this.store.getReview(reviewId);
     if (!current) throw new Error('审核任务不存在');

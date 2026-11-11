@@ -215,6 +215,7 @@ export function registerIpcHandlers({ manager, broadcast, updater, shareServer }
   ipcMain.handle(IpcChannels.reviewList, () => manager.listReviews());
   ipcMain.handle(IpcChannels.reviewListRecent, () => manager.listRecentReviews());
   ipcMain.handle(IpcChannels.reviewWorkspaceState, (_e, id: string) => manager.workspaceState(id));
+  ipcMain.handle(IpcChannels.reviewLocalBranch, (_e, id: string) => manager.localBranch(id));
   ipcMain.handle(IpcChannels.reviewWorkspaceSwitch, (_e, id: string, mode: 'local' | 'remote', repoPath?: string) => manager.switchWorkspace(id, mode, repoPath));
   ipcMain.handle(IpcChannels.reviewSyncStatus, (_e, id: string) => manager.syncStatus(id));
   ipcMain.handle(IpcChannels.reviewApplyLocal, (_e, id: string) => manager.applyLocal(id));

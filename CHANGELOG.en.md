@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.2-fork.38] - 2026-11-11
+
+- Show the bound directory and checked-out local Git branch below the review toolbar, and refresh the branch on window focus or local code refresh.
+
 ## [0.12.2-fork.37] - 2026-11-11
 
 - Merge upstream 0.12.2: animate the review status dot during scans only, reducing idle repaints.

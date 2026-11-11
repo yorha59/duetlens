@@ -68,6 +68,7 @@ export const IpcChannels = {
   reviewStart: 'review:start',
   reviewRerun: 'review:rerun',
   reviewWorkspaceState: 'review:workspace-state',
+  reviewLocalBranch: 'review:local-branch',
   reviewWorkspaceSwitch: 'review:workspace-switch',
   reviewSyncStatus: 'review:sync-status',
   reviewApplyLocal: 'review:apply-local',
@@ -526,6 +527,8 @@ export interface DuetlensApi {
      */
     rerun(reviewId: string, input?: RerunInput): Promise<ReviewRound>;
     workspaceState(reviewId: string): Promise<WorkspaceState>;
+    /** null 表示未关联，空字符串表示 detached HEAD。 */
+    localBranch(reviewId: string): Promise<string | null>;
     switchWorkspace(reviewId: string, mode: 'local' | 'remote', repoPath?: string): Promise<WorkspaceState>;
     syncStatus(reviewId: string): Promise<WorkspaceSyncStatus>;
     applyLocal(reviewId: string): Promise<Review>;

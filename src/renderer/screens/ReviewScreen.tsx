@@ -47,6 +47,7 @@ import { ReviewStatusBar } from './review/StatusBar';
 import { describeRoundError, describeSendFailure } from './review/round-error';
 import { ShareSessionButton } from './review/ShareSessionButton';
 import { WorkspaceToolbar, type WorkspaceToolbarRender } from './review/WorkspaceToolbar';
+import { BoundRepository } from './review/BoundRepository';
 import { RerunPanel } from './review/RerunPanel';
 import { ScopeSwitcher } from './review/ScopeMenu';
 import { newStartId, roundSteps, StartSteps, type StartStep } from '../components/StartProgress';
@@ -373,6 +374,12 @@ export function ReviewScreen(props: {
       scope={scope}
       onLocalRefreshed={onLocalRefreshed}
       workspaceModal={workspaceModal}
+      repositoryContext={container && <BoundRepository
+        key={JSON.stringify([container.id, container.repoPath])}
+        reviewId={container.id}
+        directory={container.repoPath}
+        refreshKey={workspaceRefresh}
+      />}
       workspaceToolbar={container?.source === 'github-pr' && !container.headRef && !container.parentReviewId ?
         (renderActions) => <WorkspaceToolbar renderActions={renderActions} refreshKey={workspaceRefresh} review={container} state={workspace} onChange={setWorkspace} onModalChange={setWorkspaceModal} onApplied={() => { setActiveSha(null); setScopeId(null); if (reviewId) void window.duetlens.review.setActiveScope(reviewId, null); setWorkspaceRevision((revision) => revision + 1); }} /> : null}
     />
@@ -392,6 +399,7 @@ function ReviewPane({
   scope,
   workspaceToolbar,
   workspaceModal,
+  repositoryContext,
   onLocalRefreshed,
 }: {
   reviewId: string | null;
@@ -413,6 +421,7 @@ function ReviewPane({
   onLocalRefreshed?: () => void;
   workspaceToolbar?: ((render: WorkspaceToolbarRender) => ReactNode) | null;
   workspaceModal?: boolean;
+  repositoryContext?: ReactNode;
 }) {
   // 多 tab 下所有已开的 review 都挂载着,只有活跃那枚可见(语义见 TabVisibility)。
   // 全局键位、定位请求、滚动位置三件事都按它收口。
@@ -1272,6 +1281,7 @@ function ReviewPane({
       )}
 
       <div className="rev-host">
+        {repositoryContext}
         {/* 切范围失败:就地说一句、留在原范围 —— 半路把三栏清空换成一句错误,
             等于把正在读的那份 diff 也一并收走 */}
         {scope?.error && (

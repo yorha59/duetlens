@@ -48,6 +48,7 @@ const api: DuetlensApi = {
     shareSession: (id) => ipcRenderer.invoke(IpcChannels.reviewShare, id),
     revokeShare: (id) => ipcRenderer.invoke(IpcChannels.reviewRevokeShare, id),
     workspaceState: (id) => ipcRenderer.invoke(IpcChannels.reviewWorkspaceState, id),
+    localBranch: (id) => ipcRenderer.invoke(IpcChannels.reviewLocalBranch, id),
     switchWorkspace: (id, mode, repoPath) => ipcRenderer.invoke(IpcChannels.reviewWorkspaceSwitch, id, mode, repoPath),
     syncStatus: (id) => ipcRenderer.invoke(IpcChannels.reviewSyncStatus, id),
     applyLocal: (id) => ipcRenderer.invoke(IpcChannels.reviewApplyLocal, id),

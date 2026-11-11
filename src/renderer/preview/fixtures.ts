@@ -972,6 +972,7 @@ export function installPreviewApi(): void {
       shareSession: async (id) => ({ url: `http://127.0.0.1:49152/sessions/preview-${id}` }),
       revokeShare: async () => {},
       workspaceState: async () => workspaceState(),
+      localBranch: async () => review.repoPath ? 'feat/streaming-transcode' : null,
       switchWorkspace: async (_id, mode, directory) => {
         if (mode === 'local' && !localReview) {
           review = { ...review, repoPath: directory || '/projects/podcast-go' };
