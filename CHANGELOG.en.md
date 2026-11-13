@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.2-fork.40] - 2026-11-13
+
+- Allow a local review share link to rebind its existing workspace, retaining the review and share link and rechecking the version before committing.
+
 ## [0.12.2-fork.39] - 2026-11-13
 
 - Repository settings can rebind an existing local review to a replacement directory. Validate the repository and branch, refresh the local snapshot, and retain rounds and discussions.

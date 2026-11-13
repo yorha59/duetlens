@@ -64,9 +64,9 @@ JSON 会话上下文：
 }
 ```
 
-`head/base/repositoryPath` 没有值时传 JSON null,不省略；repoPath 必须为本机绝对路径。200 返回与 GET 相同结构的完整上下文,`repository.path` 为 Git 根目录的规范真实路径。审核 ID、代码快照、轮次、模式及历史消息保持原值；仅绑定目录和更新时间改变。
+`head/base/repositoryPath` 没有值时传 JSON null,不省略；repoPath 必须为本机绝对路径。200 返回与 GET 相同结构的完整上下文,`repository.path` 为 Git 根目录的规范真实路径。审核 ID、轮次、模式、历史消息和已审基线保持原值。已有本地审核时，当前展示快照和 diff 根据新目录刷新。
 
-服务在校验仓库前与最终提交前都核对 expected 版本和 token；409 表示审核版本或旧目录已变,重新 GET 后由调用方确认。复用 ReviewManager.attachWorkspace → PrWorkspace.inspect,保留开放 PR、来源仓库远端身份、任务空闲等校验；已关联独立本地审核或提交子范围的任务拒绝换仓库,不能用远端 token 绕过本地视图保护。此操作不要求切换当前 Git 分支,也不会 checkout、commit、pull、push、fetch、切换审核视图、启动模型或复审。
+服务在开始校验与最终写入前核对 expected 版本和 token。409 表示审核版本或旧目录已变，重新 GET 后再核对。端点复用仓库身份、开放 PR 和任务空闲校验。尚未创建本地视图时使用整个 PR 的远端链接。已有本地视图时使用该本地视图自己的链接，新目录须检出 PR 来源分支。提交子范围和独立本地任务不支持此操作。换绑保持当前审核视图，且不会切换 Git 分支、同步提交或启动复审。
 
 失败不自动重发 POST。超时或连接中断时先 GET 核对结果；绑定成功但响应丢失也可能已经完成。升级应用重启后已有分享 token/端口继续有效；旧运行实例不会热更新,能力以实际 GET 的 access.bindRepository 为准。
 

@@ -40,7 +40,7 @@ python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" diff '分享链接'
 
 ## 修改审核绑定目录（仅用户明确要求时）
 
-先读取会话,核对 `review.id`、`repository.sourceRef/path` 和目标工作区的 Git 身份、分支、未提交改动。确认用户授权包含“修改 Duetlens 绑定目录”后,可使用：
+已有独立本地审核时，使用「本地代码」视图的分享链接。新目录须属于同一 PR 来源仓库，并检出 PR 来源分支。先读取会话,核对 `review.id`、`repository.sourceRef/path` 和目标工作区的 Git 身份、分支、未提交改动。确认用户授权包含“修改 Duetlens 绑定目录”后,可使用：
 
 ```bash
 python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" bind-repository '分享链接' --repo-path '/本机/目标仓库' --confirm

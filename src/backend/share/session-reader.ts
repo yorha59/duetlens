@@ -137,7 +137,9 @@ export class SharedSessionReader {
       } catch { throw new ShareReadError(404, '无法读取远端审核版本文件,请检查 gh 登录及该版本是否仍可访问'); }
     } else throw new ShareReadError(409, '会话没有关联可读取的代码仓库');
     if (content.includes('\0')) throw new ShareReadError(415, '暂不支持读取二进制文件');
-    this.checkVersion(this.review(id), head, round, base);
+    const current = this.review(id);
+    this.checkVersion(current, head, round, base);
+    if (current.repoPath !== review.repoPath) throw new ShareReadError(409, '仓库绑定已更新,请重新读取会话链接');
     return { path: file, head: revision, round: review.currentRound, kind, content,
       editablePath: kind === 'file' && review.repoPath ? path.join(review.repoPath, file) : null,
       contentSource: review.workspaceHead && review.workspaceHead !== this.store.getRound(id, review.currentRound)?.headSha ? 'workspace-snapshot' : 'reviewed-snapshot',

@@ -3,7 +3,7 @@ import { readRemoteComments } from '../source/remote-pr-comments';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { rm, cp } from 'node:fs/promises';
+import { rm, cp, readFile, writeFile } from 'node:fs/promises';
 import { normalizeLocalReviewTitle, isProposalUndoBlocked, isUnscanned, REVIEW_RETENTION_MS, scanDoneStatus } from '@shared/domain';
 import type {
   AgentKind,
@@ -407,14 +407,19 @@ export class ReviewManager extends EventEmitter {
   }
 
   async attachWorkspace(reviewId: string, repoPath: string, beforeCommit?: () => void): Promise<Review> {
-    const review = this.assertWorkspaceIdle(reviewId);
-    this.workspaceBusy.add(reviewId);
+    const requested = this.store.getReview(reviewId);
+    if (!requested) throw new Error('审核任务不存在');
+    if (requested.localReview && (!beforeCommit || !requested.workspaceRemoteId)) {
+      throw new Error('请在整个 PR 的审核任务中更换关联仓库');
+    }
+    const state = this.store.getWorkspaceState(reviewId);
+    if (requested.localReview && state.localId !== reviewId) throw new Error('分享链接与本地审核不匹配');
+    const review = this.assertWorkspaceIdle(state.remoteId);
+    this.workspaceBusy.add(review.id);
     try {
-      const state = this.store.getWorkspaceState(reviewId);
-      if (review.localReview) throw new Error('请在整个 PR 的审核任务中更换关联仓库');
       if (state.localId) {
-        if (beforeCommit) throw new Error('请在 Duetlens 仓库设置中更换已有本地审核的目录');
-        await this.rebindLocalWorkspace(review, state.localId, repoPath);
+        if (beforeCommit && !requested.localReview) throw new Error('请使用本地代码视图的分享链接更换已有本地审核的目录');
+        await this.rebindLocalWorkspace(review, state.localId, repoPath, beforeCommit);
         return this.store.getReview(reviewId)!;
       }
       beforeCommit?.();
@@ -427,14 +432,15 @@ export class ReviewManager extends EventEmitter {
       const updated = this.store.getReview(reviewId)!;
       this.forward({ reviewId, type: 'review', payload: updated });
       return updated;
-    } finally { this.workspaceBusy.delete(reviewId); }
+    } finally { this.workspaceBusy.delete(review.id); }
   }
 
-  private async rebindLocalWorkspace(remote: Review, localId: string, directory: string): Promise<void> {
+  private async rebindLocalWorkspace(remote: Review, localId: string, directory: string, beforeCommit?: () => void): Promise<void> {
     const local = this.assertWorkspaceIdle(localId);
     this.workspaceBusy.add(localId);
     let source: Source | undefined;
     try {
+      beforeCommit?.();
       const info = await this.prWorkspace.inspect(remote, directory);
       if (info.branch !== info.pr.head.ref) {
         throw new Error(`请先在新目录切到 PR 来源分支 ${info.pr.head.ref}（当前: ${info.branch || 'detached HEAD'}）`);
@@ -453,16 +459,34 @@ export class ReviewManager extends EventEmitter {
         if (source.hasFile && !await source.hasFile(file)) missing.push(file);
       }
       const updates = reconcileWorkspaceDiscussions(this.getDiff(localId), parseUnifiedDiff(rawDiff), discussions);
+      beforeCommit?.();
       await this.teardown(remote.id);
       await this.teardown(localId);
-      if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, localId));
-      this.store.transaction(() => {
-        this.store.setReviewWorkspace(remote.id, info.repoPath, false, null);
-        this.store.setReviewWorkspace(localId, info.repoPath, true, prepared.baseSha ?? base);
-        this.store.updateWorkspaceDisplay(localId, prepared.headSha!, rawDiff, missing);
-        this.store.reconcileWorkspaceDiscussions(localId, updates);
-        this.store.setSyncedCommit(remote.id, null);
+      const archive = this.snapshotRoot ? path.join(this.snapshotRoot, localId) : undefined;
+      const alternates = archive ? path.join(archive, 'objects', 'info', 'alternates') : undefined;
+      const previousAlternates = alternates && await readFile(alternates).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
       });
+      beforeCommit?.();
+      try {
+        if (archive) await source.saveSnapshot?.(archive);
+        beforeCommit?.();
+        this.store.transaction(() => {
+          this.store.setReviewWorkspace(remote.id, info.repoPath, false, null);
+          this.store.setReviewWorkspace(localId, info.repoPath, true, prepared.baseSha ?? base);
+          this.store.updateWorkspaceDisplay(localId, prepared.headSha!, rawDiff, missing);
+          this.store.reconcileWorkspaceDiscussions(localId, updates);
+          this.store.setSyncedCommit(remote.id, null);
+        });
+      } catch (error) {
+        // 归档只追加内容寻址对象。换绑失败时恢复旧对象库的查找路径。
+        if (alternates) {
+          if (previousAlternates) await writeFile(alternates, previousAlternates);
+          else await rm(alternates, { force: true });
+        }
+        throw error;
+      }
       this.localFingerprints.delete(localId);
       this.forward({ reviewId: remote.id, type: 'review', payload: this.store.getReview(remote.id)! });
       this.forward({ reviewId: localId, type: 'workspace', payload: this.store.getReview(localId)! });
