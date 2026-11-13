@@ -1,7 +1,7 @@
 /** 真 Git 工作区:新增后删除文件、结论随文件隐藏/恢复、无变化零快照、不启动模型。 */
 import { strict as assert } from 'node:assert';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -10,6 +10,7 @@ import { ReviewStore } from '../src/backend/db/review-store';
 import { ReviewManager } from '../src/backend/review/review-manager';
 import { SharedSessionReader } from '../src/backend/share/session-reader';
 import { createSource } from '../src/backend/source/create-source';
+import { PrWorkspace } from '../src/backend/source/pr-workspace';
 import { LocalWorktreeSource } from '../src/backend/source/local-worktree-source';
 const exec = promisify(execFile);
 async function main() {
@@ -32,7 +33,11 @@ async function main() {
   const finding = store.addFinding(local.id, { severity: 'medium', title: 'old finding', body: 'policy issue', file: 'ad-review.policy.ts', line: 1 });
   store.addMessage(finding.discussionId, 'user', 'old comment');
   let snapshotsMade = 0; let agents = 0; let workspaceEvents = 0;
-  const manager = new ReviewManager(store, undefined, { snapshotRoot: snapshots,
+  const prWorkspace = new PrWorkspace(
+   async (cmd, args, cwd) => (await exec(cmd, args, { cwd })).stdout,
+   async () => ({ state: 'open', html_url: 'https://github.com/test/repo/pull/1', head: { ref: 'main', sha: base, repo: { full_name: 'test/repo' } }, base: { sha: base } }),
+  );
+  const manager = new ReviewManager(store, undefined, { snapshotRoot: snapshots, prWorkspace,
    sourceFactory: (target) => { assert.equal(target.materialize, false); snapshotsMade++; return createSource(target); },
    agentFactory: () => { agents++; throw new Error('must not run'); },
   });
@@ -92,6 +97,30 @@ async function main() {
   assert.equal(agents, 0);
   store.setReviewStatus(local.id, 'scanning');
   assert.equal((await manager.refreshLocal(local.id)).deferred, true, 'active scan must retain pinned source');
+  await assert.rejects(manager.attachWorkspace(remote.id, repo), /审核或同步操作仍在进行中/);
+  store.setReviewStatus(local.id, 'reviewing');
+  await git('remote', 'add', 'origin', 'https://github.com/test/repo.git');
+  await git('branch', '-m', 'wrong-branch');
+  const replacement = path.join(await realpath(root), 'replacement');
+  await rename(repo, replacement);
+  await assert.rejects(manager.attachWorkspace(remote.id, replacement), /请先在新目录切到 PR 来源分支 main/);
+  assert.equal(store.getReview(local.id)!.repoPath, repo);
+  assert.equal(store.getReview(remote.id)!.repoPath, repo);
+  await exec('git', ['branch', '-m', 'main'], { cwd: replacement });
+  await writeFile(path.join(replacement, 'keep.ts'), 'base\nsecond change\nreplacement change\n');
+  const replacementIndex = await readFile(path.join(replacement, '.git/index'));
+  store.setWorkspaceMode(remote.id, 'local');
+  store.setSyncedCommit(remote.id, base);
+  await manager.attachWorkspace(remote.id, replacement);
+  assert.equal(store.getReview(remote.id)!.repoPath, replacement);
+  assert.equal(store.getReview(local.id)!.repoPath, replacement);
+  assert.deepEqual(store.getWorkspaceState(remote.id), { remoteId: remote.id, localId: local.id, activeMode: 'local', syncedCommit: null });
+  assert.equal(store.getRound(local.id, 1)!.headSha, prepared.headSha);
+  assert.equal(store.listMessages(finding.discussionId)[0].text, 'old comment');
+  assert.equal(await manager.getFileContent(local.id, 'keep.ts'), 'base\nsecond change\nreplacement change\n');
+  assert.deepEqual(await readFile(path.join(replacement, '.git/index')), replacementIndex);
+  assert.equal(agents, 0);
+  console.log('repository rebind: removed directory, wrong branch, busy guard, preserved local view/history and new snapshot passed');
   console.log('live workspace: actual diff/deleted-file findings and comments/restore/current file and share/no-change fast path/review baseline/index preserved/zero agents passed');
  } finally { db.close(); await rm(root, { recursive: true, force: true }); }
 }

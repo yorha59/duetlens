@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.2-fork.39] - 2026-11-13
+
+- Repository settings can rebind an existing local review to a replacement directory. Validate the repository and branch, refresh the local snapshot, and retain rounds and discussions.
+
 ## [0.12.2-fork.38] - 2026-11-11
 
 - Show the bound directory and checked-out local Git branch below the review toolbar, and refresh the branch on window focus or local code refresh.

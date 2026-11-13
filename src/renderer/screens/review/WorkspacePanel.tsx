@@ -11,11 +11,10 @@ export function WorkspacePanel({ review, state, initialError, onChange, onClose,
   const [directory, setDirectory] = useState(review.repoPath ?? '');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState(initialError ?? '');
-  const [notice, setNotice] = useState('');
   const synced = !!state?.syncedCommit;
   const perform = async (label: string, action: () => Promise<void>) => {
     if (busy) return;
-    setBusy(label); setError(''); setNotice('');
+    setBusy(label); setError('');
     try { await action(); }
     catch (error) { setError((error as Error).message); }
     finally { setBusy(''); }
@@ -26,16 +25,21 @@ export function WorkspacePanel({ review, state, initialError, onChange, onClose,
       <header className="rp-head"><h2>本地仓库与远端 PR</h2><button type="button" disabled={!!busy} onClick={onClose} aria-label="关闭本地仓库面板">×</button></header>
       <p>{review.sourceRef} · 当前视图：<b>{state?.activeMode === 'local' ? '本地代码' : '远端 PR'}</b></p>
       <p>顶部可随时切换，两边独立保留讨论、结论和已看进度。切换不启动 AI；点击机审或重跑后才审核，复审默认只审新增变化。</p>
-      {!state?.localId && <>
-        <label className="workspace-directory">本地 Git 仓库<span>
-          <input aria-label="关联的本地仓库路径" value={directory} disabled={!!busy} onChange={(event) => setDirectory(event.target.value)} placeholder="选择本地代码目录" />
-          <button type="button" disabled={!!busy} onClick={() => void perform('选择目录…', async () => { const path = await window.duetlens.dialog.pickDirectory(); if (path) setDirectory(path); })}>选择目录</button>
-        </span></label>
-        <button type="button" disabled={!!busy || !directory.trim()} onClick={() => void perform('建立本地视图…', async () => {
-          onChange(await window.duetlens.review.switchWorkspace(review.id, 'local', directory)); onClose();
-        })}>关联仓库并切到本地</button>
-      </>}
-      {state?.localId && <p>关联仓库：<span className="mono">{directory}</span></p>}
+      <label className="workspace-directory">本地 Git 仓库<span>
+        <input aria-label="关联的本地仓库路径" value={directory} disabled={!!busy} onChange={(event) => setDirectory(event.target.value)} placeholder="选择本地代码目录" />
+        <button type="button" disabled={!!busy} onClick={() => void perform('选择目录…', async () => { const path = await window.duetlens.dialog.pickDirectory(); if (path) setDirectory(path); })}>选择目录</button>
+      </span></label>
+      <button type="button" disabled={!!busy || !state || !directory.trim() || (!!state.localId && directory.trim() === review.repoPath)} onClick={() => {
+        const target = directory.trim();
+        void perform(state?.localId ? '更换仓库…' : '建立本地视图…', async () => {
+          if (state?.localId) {
+            await window.duetlens.review.attachWorkspace(review.id, target);
+          } else {
+            onChange(await window.duetlens.review.switchWorkspace(review.id, 'local', target));
+          }
+          onClose();
+        });
+      }}>{state?.localId ? '更换关联仓库' : '关联仓库并切到本地'}</button>
       <hr /><h3>同步代码</h3>
       <p>自动判断拉取或推送,确认后执行。</p>
       <button type="button" disabled={!!busy || !state?.localId} onClick={onSync}>同步代码…</button>
@@ -49,7 +53,6 @@ export function WorkspacePanel({ review, state, initialError, onChange, onClose,
       </div>}
       {busy && <p role="status">{busy}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
-      {notice && <p className="workspace-notice" role="status">{notice}</p>}
     </section>
   </div>;
 }

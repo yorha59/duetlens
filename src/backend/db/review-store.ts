@@ -417,7 +417,7 @@ export class ReviewStore {
     return this.getWorkspaceState(id);
   }
 
-  setSyncedCommit(id: string, commit: string): void {
+  setSyncedCommit(id: string, commit: string | null): void {
     const state = this.getWorkspaceState(id);
     this.db.prepare(`INSERT INTO workspace_views (remote_id, synced_commit) VALUES (?, ?)
       ON CONFLICT(remote_id) DO UPDATE SET synced_commit = excluded.synced_commit`).run(state.remoteId, commit);

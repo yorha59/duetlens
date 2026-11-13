@@ -32,7 +32,7 @@ export function WorkspaceToolbar({ review, state, onChange, onModalChange, onApp
     refresh.current = check;
     check();
     return () => { alive = false; };
-  }, [review.id, state?.localId, refreshKey]);
+  }, [review.id, review.repoPath, state?.localId, refreshKey]);
   const pick = async (mode: 'local' | 'remote') => {
     if (busy || state?.activeMode === mode) return;
     if (mode === 'local' && !state?.localId && !review.repoPath) { setOpen(true); return; }

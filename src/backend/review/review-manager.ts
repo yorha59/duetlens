@@ -410,7 +410,13 @@ export class ReviewManager extends EventEmitter {
     const review = this.assertWorkspaceIdle(reviewId);
     this.workspaceBusy.add(reviewId);
     try {
-      if (review.localReview || this.store.getWorkspaceState(reviewId).localId) throw new Error('此任务已关联独立本地审核,为保留其讨论不能更换仓库');
+      const state = this.store.getWorkspaceState(reviewId);
+      if (review.localReview) throw new Error('请在整个 PR 的审核任务中更换关联仓库');
+      if (state.localId) {
+        if (beforeCommit) throw new Error('请在 Duetlens 仓库设置中更换已有本地审核的目录');
+        await this.rebindLocalWorkspace(review, state.localId, repoPath);
+        return this.store.getReview(reviewId)!;
+      }
       beforeCommit?.();
       const info = await this.prWorkspace.inspect(review, repoPath);
       beforeCommit?.();
@@ -422,6 +428,48 @@ export class ReviewManager extends EventEmitter {
       this.forward({ reviewId, type: 'review', payload: updated });
       return updated;
     } finally { this.workspaceBusy.delete(reviewId); }
+  }
+
+  private async rebindLocalWorkspace(remote: Review, localId: string, directory: string): Promise<void> {
+    const local = this.assertWorkspaceIdle(localId);
+    this.workspaceBusy.add(localId);
+    let source: Source | undefined;
+    try {
+      const info = await this.prWorkspace.inspect(remote, directory);
+      if (info.branch !== info.pr.head.ref) {
+        throw new Error(`请先在新目录切到 PR 来源分支 ${info.pr.head.ref}（当前: ${info.branch || 'detached HEAD'}）`);
+      }
+      if (info.repoPath === local.repoPath && info.repoPath === remote.repoPath) return;
+      const next = { ...local, repoPath: info.repoPath };
+      const base = await this.prWorkspace.reviewBase(next);
+      source = this.makeSource({ ...targetOf(next, this.snapshotRoot), baseRef: base, materialize: false });
+      const prepared = await source.prepare();
+      if (!prepared.headSha) throw new Error('新目录的代码快照不可用');
+      const rawDiff = await source.getDiff();
+      const discussions = this.store.listDiscussions(localId);
+      const files = new Set([...this.store.listFindings(localId).map(f => f.file), ...discussions.flatMap(d => d.file ? [d.file] : [])]);
+      const missing: string[] = [];
+      for (const file of files) {
+        if (source.hasFile && !await source.hasFile(file)) missing.push(file);
+      }
+      const updates = reconcileWorkspaceDiscussions(this.getDiff(localId), parseUnifiedDiff(rawDiff), discussions);
+      await this.teardown(remote.id);
+      await this.teardown(localId);
+      if (this.snapshotRoot) await source.saveSnapshot?.(path.join(this.snapshotRoot, localId));
+      this.store.transaction(() => {
+        this.store.setReviewWorkspace(remote.id, info.repoPath, false, null);
+        this.store.setReviewWorkspace(localId, info.repoPath, true, prepared.baseSha ?? base);
+        this.store.updateWorkspaceDisplay(localId, prepared.headSha!, rawDiff, missing);
+        this.store.reconcileWorkspaceDiscussions(localId, updates);
+        this.store.setSyncedCommit(remote.id, null);
+      });
+      this.localFingerprints.delete(localId);
+      this.forward({ reviewId: remote.id, type: 'review', payload: this.store.getReview(remote.id)! });
+      this.forward({ reviewId: localId, type: 'workspace', payload: this.store.getReview(localId)! });
+    } finally {
+      this.workspaceBusy.delete(localId);
+      await source?.dispose().catch(() => {});
+    }
   }
 
   async syncPreview(reviewId: string) {
