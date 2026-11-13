@@ -967,9 +967,15 @@ function ReviewPane({
     } catch (error) { setLocalRefreshError((error as Error).message); }
     finally { localRefreshInFlight.current = false; setLocalRefreshing(false); }
   }, [reviewId, onLocalRefreshed]);
-  // 进入本地视图时检查一次;空闲期间不定时运行 Git,后续由用户手动刷新。
+  // 进入本地视图或从编辑器回来时检查一次,空闲期间不轮询 Git。
   useEffect(() => {
-    if (active && (review?.localReview || review?.source === 'local-worktree')) void refreshLocal();
+    if (!active || (!review?.localReview && review?.source !== 'local-worktree')) return;
+    const onFocus = () => {
+      if (!draftFlags.current.annotate && !draftFlags.current.composer) void refreshLocal();
+    };
+    onFocus();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [active, review?.localReview, review?.source, refreshLocal]);
 
   // scope 每次渲染都是新对象,直接进上面那个 effect 的依赖会让全局键 handler 每帧重注册

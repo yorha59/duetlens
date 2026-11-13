@@ -182,7 +182,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
   const targetNote = (d: UnsentDraft): string | null => {
     if (d.discussionId === activeId) return null;
     const target = d.discussionId ? discussions.find((x) => x.id === d.discussionId) : null;
-    if (!target) return '原讨论已不在 · 放回后发给当前讨论';
+    if (!target) return '原讨论已隐藏，放回后可在当前讨论使用';
     return `发往:${titleOf(target, findingByDisc, messages[target.id] ?? [])}`;
   };
 
@@ -454,6 +454,7 @@ export function DiscussionTab(props: DiscussionTabProps) {
         onSend={props.onSend}
         unsent={props.unsent.filter(draft => (draft.mode ?? 'note') === pane)}
         targetNote={targetNote}
+        isTargetHidden={(draft) => !!draft.discussionId && !discussions.some(d => d.id === draft.discussionId)}
         onRestore={props.onRestoreUnsent}
         onDraftChange={props.onComposerDraftChange}
       />

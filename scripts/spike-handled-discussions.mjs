@@ -24,10 +24,13 @@ try {
     const messages={fixed:[{id:'note',discussionId:'fixed',role:'user',kind:'note',text:'Retained note',createdAt:1}]};
     function Demo(){
       const [items,setItems]=useState(findings),[round,setRound]=useState(2),[active,setActive]=useState(null),[focus,setFocus]=useState(null);
+      const [threads,setThreads]=useState(discussions);
+      const [drafts,setDrafts]=useState([{id:1,discussionId:'fixed',mode:'note',text:'Unsent original',reason:'Send failed'}]);
+      window.hideFixed=()=>{setThreads(threads=>threads.filter(d=>d.id!=='fixed'));setItems(items=>items.filter(f=>f.id!=='fixed'));};
       window.updateFinding=(id,patch)=>setItems(items=>items.map(f=>f.id===id?{...f,...patch}:f));
       window.advanceRound=()=>setRound(3);
       window.focusHandled=()=>{setActive('fixed');setFocus({id:'fixed',nonce:Date.now(),mode:'note'});};
-      return <div style={{height:800,width:650}}><DiscussionTab currentRound={round} discussions={discussions} findings={items} messages={messages} activeId={active} composerFocus={focus} onSelect={setActive} awaitingReply={new Set()} streams={{}} onStopReply={async()=>{}} replyFailure={{}} unsent={[]} onRestoreUnsent={()=>{}} scanning={false} onSend={()=>{throw Error('must never send')}} onStartGlobal={async()=>{}} onJumpToCode={()=>{}} ensureMessages={()=>{}} onPromote={()=>{}} onClearMessages={()=>{}} proposals={[]} onApplyProposal={async()=>{}} onSkipProposal={async()=>{}} onUndoProposal={async()=>{}}/></div>;
+      return <div style={{height:800,width:650}}><DiscussionTab currentRound={round} discussions={threads} findings={items} messages={messages} activeId={active} composerFocus={focus} onSelect={setActive} awaitingReply={new Set()} streams={{}} onStopReply={async()=>{}} replyFailure={{}} unsent={drafts} onRestoreUnsent={draft=>setDrafts(drafts=>drafts.filter(d=>d.id!==draft.id))} scanning={false} onSend={()=>{throw Error('must never send')}} onStartGlobal={async()=>{}} onJumpToCode={()=>{}} ensureMessages={()=>{}} onPromote={()=>{}} onClearMessages={()=>{}} proposals={[]} onApplyProposal={async()=>{}} onSkipProposal={async()=>{}} onUndoProposal={async()=>{}}/></div>;
     }
     createRoot(document.getElementById('root')).render(<Demo/>);
   `, loader: 'tsx', resolveDir: process.cwd() }, bundle: true, outfile: path.join(directory, 'renderer.js'), jsx: 'automatic', platform: 'browser', loader: { '.svg': 'text' }, define: { __APP_VERSION__: '"test"' } });
@@ -70,6 +73,15 @@ app.whenReady().then(async () => {
   await js('window.focusHandled()');
   await until('document.querySelector(".disc-handled").open');
   assert(await js('document.querySelector(".thread").textContent.includes("Retained note")'));
+  await js('window.hideFixed()');
+  await until('!!document.querySelector(".composer details")');
+  assert.equal(await js('document.querySelector("[data-discussion-id=fixed]")'),null);
+  assert.equal(await js('document.querySelector(".anchor-ref")'),null);
+  assert.equal(await js('document.querySelector(".composer details").open'),false,'orphan draft is collapsed');
+  assert.equal(await js('document.querySelector(".composer > .cs-unsent")'),null);
+  await click('.composer details summary');
+  await click('.composer details .cu-restore');
+  assert.equal(await js('document.querySelector(".composer-input").value'),'Unsent original');
   console.log('handled discussions: default collapse, pending/user preservation, history access, live resolution/restoration, cross-round semantics and explicit focus passed');
   win.destroy();app.exit(0);
  } catch(error) {console.error(error);win.destroy();app.exit(1);}

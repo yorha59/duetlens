@@ -44,6 +44,7 @@ export interface ComposerProps {
   unsent: UnsentDraft[];
   /** 一条待恢复原文的去向说明(切线程 / 原线程已不在);null = 就在当前线程,无需多说 */
   targetNote: (d: UnsentDraft) => string | null;
+  isTargetHidden: (d: UnsentDraft) => boolean;
   onRestore: (d: UnsentDraft) => void;
   /** 框里有没有还没发出去的字;纯空白不算。关 tab 前的拦截据此判断,故只报布尔量 */
   onDraftChange?: (hasDraft: boolean) => void;
@@ -59,6 +60,7 @@ export function Composer({
   onSend,
   unsent,
   targetNote,
+  isTargetHidden,
   onRestore,
   onDraftChange,
 }: ComposerProps) {
@@ -96,23 +98,35 @@ export function Composer({
     onRestore(d);
   };
 
+  const visibleDrafts: UnsentDraft[] = [];
+  const hiddenDrafts: UnsentDraft[] = [];
+  for (const draft of unsent) (isTargetHidden(draft) ? hiddenDrafts : visibleDrafts).push(draft);
+
+  const renderDraft = (d: UnsentDraft) => {
+    const note = targetNote(d);
+    return (
+      <div key={d.id} className="cs-unsent">
+        <div className="cu-head">
+          <span className="cu-why">✕ 没能发出:{d.reason}</span>
+          <button className="cu-restore" onClick={() => restore(d)}>
+            ↩ 放回输入框
+          </button>
+        </div>
+        {note && <div className="cu-to">{note}</div>}
+        <div className="cu-text">{d.text}</div>
+      </div>
+    );
+  };
+
   return (
     <div className="composer">
-      {unsent.map((d) => {
-        const note = targetNote(d);
-        return (
-          <div key={d.id} className="cs-unsent">
-            <div className="cu-head">
-              <span className="cu-why">✕ 没能发出:{d.reason}</span>
-              <button className="cu-restore" onClick={() => restore(d)}>
-                ↩ 放回输入框
-              </button>
-            </div>
-            {note && <div className="cu-to">{note}</div>}
-            <div className="cu-text">{d.text}</div>
-          </div>
-        );
-      })}
+      {visibleDrafts.map(renderDraft)}
+      {hiddenDrafts.length > 0 && (
+        <details className="disc-handled">
+          <summary>已隐藏讨论的草稿 {hiddenDrafts.length}</summary>
+          {hiddenDrafts.map(renderDraft)}
+        </details>
+      )}
       <div className="box">
         <textarea
           ref={inputRef}

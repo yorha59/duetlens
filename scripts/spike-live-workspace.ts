@@ -32,6 +32,9 @@ async function main() {
   await source.saveSnapshot(path.join(snapshots, local.id)); await source.dispose();
   const finding = store.addFinding(local.id, { severity: 'medium', title: 'old finding', body: 'policy issue', file: 'ad-review.policy.ts', line: 1 });
   store.addMessage(finding.discussionId, 'user', 'old comment');
+  const deletedFileDiscussion = store.addUserDiscussion(local.id, { file: 'ad-review.policy.ts', line: 1 });
+  const savedReply = store.addMessage(deletedFileDiscussion.id, 'agent', 'old reply');
+
   let snapshotsMade = 0; let agents = 0; let workspaceEvents = 0;
   const prWorkspace = new PrWorkspace(
    async (cmd, args, cwd) => (await exec(cmd, args, { cwd })).stdout,
@@ -52,6 +55,7 @@ async function main() {
   assert.equal(manager.getFindings(local.id).length, 0);
   assert.equal(manager.getDiscussions(local.id).length, 0);
   assert.equal(store.listFindings(local.id).length, 1, 'history is recoverable');
+  assert.deepEqual(store.listMessages(deletedFileDiscussion.id), [savedReply], 'deletion hides the thread without deleting the reply');
   assert.equal(store.getRound(local.id, 1)!.headSha, prepared.headSha, 'review baseline must remain unchanged');
   assert.equal(store.getReview(local.id)!.currentRound, 1);
   const reader = new SharedSessionReader(store, snapshots);
