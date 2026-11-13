@@ -469,6 +469,16 @@ export class ReviewStore {
     return (this.db.prepare('SELECT review_id FROM review_shares WHERE token = ?').get(token) as { review_id: string } | undefined)?.review_id ?? null;
   }
 
+  getShareWriteback(reviewId: string, requestId: string): { fingerprint: string; result_json: string } | undefined {
+    return this.db.prepare('SELECT fingerprint, result_json FROM review_share_writebacks WHERE review_id = ? AND request_id = ?')
+      .get(reviewId, requestId) as { fingerprint: string; result_json: string } | undefined;
+  }
+
+  recordShareWriteback(reviewId: string, requestId: string, fingerprint: string, resultJson: string): void {
+    this.db.prepare('INSERT INTO review_share_writebacks (review_id, request_id, fingerprint, result_json) VALUES (?, ?, ?, ?)')
+      .run(reviewId, requestId, fingerprint, resultJson);
+  }
+
   hasReviewShares(): boolean {
     return !!this.db.prepare('SELECT 1 FROM review_shares LIMIT 1').get();
   }
@@ -706,14 +716,14 @@ export class ReviewStore {
    * 提交范围会随着从不更新的 PR 容器一起过期,而容器一走,它自己也被级联带走。
    */
   private touchReview(reviewId: string, ts: number): void {
-    this.db.prepare('UPDATE reviews SET updated_at = ? WHERE id = ?').run(ts, reviewId);
+    this.db.prepare('UPDATE reviews SET updated_at = MAX(updated_at + 1, ?) WHERE id = ?').run(ts, reviewId);
     this.touchParent(reviewId, ts);
   }
 
   /** 只推容器行;供那些自己已经写过 updated_at 的 UPDATE 补上冒泡。顶层行无父,空转。 */
   private touchParent(reviewId: string, ts: number): void {
     this.db
-      .prepare('UPDATE reviews SET updated_at = ? WHERE id = (SELECT COALESCE(parent_review_id, workspace_remote_id) FROM reviews WHERE id = ?)')
+      .prepare('UPDATE reviews SET updated_at = MAX(updated_at + 1, ?) WHERE id = (SELECT COALESCE(parent_review_id, workspace_remote_id) FROM reviews WHERE id = ?)')
       .run(ts, reviewId);
   }
 

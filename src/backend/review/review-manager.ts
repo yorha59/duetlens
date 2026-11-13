@@ -1,10 +1,10 @@
 import { reconcileWorkspaceDiscussions } from '@shared/workspace-discussions';
 import { readRemoteComments } from '../source/remote-pr-comments';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { rm, cp, readFile, writeFile } from 'node:fs/promises';
-import { normalizeLocalReviewTitle, isProposalUndoBlocked, isUnscanned, REVIEW_RETENTION_MS, scanDoneStatus } from '@shared/domain';
+import { normalizeLocalReviewTitle, isAutoClosedFixed, isProposalUndoBlocked, isUnscanned, REVIEW_RETENTION_MS, scanDoneStatus } from '@shared/domain';
 import type {
   AgentKind,
   AgentModelInfo,
@@ -35,6 +35,8 @@ import type { PromptSaveInput, ReviewPromptView } from '@shared/prompt';
 import { buildPrReviewPayload, hasAnchor, isSubmittable, submitBlocker } from '@shared/github-review';
 import type { McpContentProviders } from '../mcp/duetlens-mcp-server';
 import type { ReviewStore } from '../db/review-store';
+import { ShareReadError } from '../share/session-reader';
+import type { ShareWriteback, ShareWritebackReceipt } from '../share/session-writeback';
 import { CodexAgent } from '../agent/codex/codex-agent';
 import { PiAgent, probePi, type PiAgentOptions as PiAgentConfig } from '../agent/pi/pi-agent';
 import type { ConversationalAgent } from '../agent/conversational-agent';
@@ -404,6 +406,57 @@ export class ReviewManager extends EventEmitter {
       this.forward({ reviewId: remote.id, type: 'review', payload: updated });
       return updated;
     } finally { await source.dispose(); this.workspaceBusy.delete(local.id); this.workspaceBusy.delete(remote.id); }
+  }
+
+  async writeSharedReview(reviewId: string, input: ShareWriteback, assertShare: () => void, assertVersion: () => void) {
+    const fingerprint = createHash('sha256').update(JSON.stringify([input.kind, input.targetId, input.text])).digest('hex');
+    const replay = () => {
+      assertShare();
+      const prior = this.store.getShareWriteback(reviewId, input.requestId);
+      if (!prior) return undefined;
+      if (prior.fingerprint !== fingerprint) throw new ShareReadError(409, '此 requestId 已用于不同内容');
+      return { ...(JSON.parse(prior.result_json) as ShareWritebackReceipt), replayed: true };
+    };
+    const prior = replay();
+    if (prior) return prior;
+    const review = this.assertWorkspaceIdle(reviewId);
+    if (review.localReview || review.source === 'local-worktree') {
+      const refreshed = await this.refreshLocal(reviewId);
+      const completed = replay();
+      if (completed) return completed;
+      if (refreshed.deferred) throw new Error('工作区刷新仍在进行中,请重新读取后再试');
+    }
+    const current = this.assertWorkspaceIdle(reviewId);
+    assertVersion();
+    let event: ReviewEvent | undefined;
+    const receipt = this.store.transaction((): ShareWritebackReceipt => {
+      let result: ShareWritebackReceipt;
+      if (input.kind === 'reply') {
+        const discussion = this.store.getDiscussion(input.targetId);
+        if (discussion?.reviewId !== reviewId || !workspaceAnchorVisible(discussion, current, this.getDiff(reviewId))) {
+          throw new ShareReadError(404, '讨论不在此会话的当前范围内');
+        }
+        const message = this.store.addMessage(discussion.id, 'agent', input.text, 'chat');
+        result = { kind: 'reply', discussionId: discussion.id, messageId: message.id };
+        event = { reviewId, type: 'message', payload: message };
+      } else {
+        const finding = this.store.getFinding(input.targetId);
+        if (finding?.reviewId !== reviewId || !workspaceAnchorVisible(finding, current, this.getDiff(reviewId))) {
+          throw new ShareReadError(404, 'finding 不在此会话的当前范围内');
+        }
+        const alreadyFixed = finding.triage === 'dismiss' && finding.resolution === 'fixed';
+        if (!alreadyFixed) {
+          if (finding.triage !== 'open' && !isAutoClosedFixed(finding)) throw new Error('此 finding 已被剔除');
+          this.store.setFindingResolution(finding.id, current.currentRound, 'fixed', input.text);
+          event = { reviewId, type: 'finding', payload: this.store.getFinding(finding.id)! };
+        }
+        result = { kind: 'mark-fixed', findingId: finding.id, alreadyFixed };
+      }
+      this.store.recordShareWriteback(reviewId, input.requestId, fingerprint, JSON.stringify(result));
+      return result;
+    });
+    if (event) this.forward(event);
+    return { ...receipt, replayed: false };
   }
 
   async attachWorkspace(reviewId: string, repoPath: string, beforeCommit?: () => void): Promise<Review> {

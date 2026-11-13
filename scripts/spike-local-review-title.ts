@@ -16,7 +16,7 @@ async function main() {
     let store = new ReviewStore(db);
     const remote = store.createReview({ source: 'github-pr', sourceRef: 'acme/repo#1', title: 'Original PR', status: 'reviewing' });
     // 重放上一版本迁移,既有原始标题和数据不能丢失。
-    db.exec('ALTER TABLE reviews DROP COLUMN local_title; PRAGMA user_version=36');
+    db.exec('DROP TABLE review_share_writebacks; ALTER TABLE reviews DROP COLUMN local_title; PRAGMA user_version=36');
     migrate(db);
     assert.equal(db.pragma('user_version', { simple: true }), SCHEMA_VERSION);
     assert.equal(store.getReview(remote.id)!.title, 'Original PR');

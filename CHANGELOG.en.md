@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.2-fork.41] - 2026-11-13
+
+- The local session sharing API can reply to existing discussions and mark findings fixed, preserving the original notes and deduplicating retried requests.
+
 ## [0.12.2-fork.40] - 2026-11-13
 
 - Allow a local review share link to rebind its existing workspace, retaining the review and share link and rechecking the version before committing.

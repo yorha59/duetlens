@@ -5,14 +5,22 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ReviewStore } from '../db/review-store';
 import { SharedSessionReader, ShareReadError } from './session-reader';
+import type { ShareWritebackHandler } from './session-writeback';
 
-/** 本机分享与显式仓库绑定入口,独立于审核 agent 的临时 MCP,不会占用 agent 或启动模型。 */
+/** 本机审核分享入口,独立于审核 agent 的临时 MCP,不会占用 agent 或启动模型。 */
 export class SessionShareServer {
   private server?: http.Server;
   private starting?: Promise<string>;
   private origin?: string;
   private activeReads = 0;
-  constructor(private readonly store: ReviewStore, private readonly reader: SharedSessionReader, private readonly statePath: string, private readonly refreshLocal?: (id: string) => Promise<unknown>, private readonly bindRepository?: (id: string, repoPath: string, guard: () => void) => Promise<unknown>) {}
+  constructor(
+    private readonly store: ReviewStore,
+    private readonly reader: SharedSessionReader,
+    private readonly statePath: string,
+    private readonly refreshLocal?: (id: string) => Promise<unknown>,
+    private readonly bindRepository?: (id: string, repoPath: string, guard: () => void) => Promise<unknown>,
+    private readonly writeback?: ShareWritebackHandler,
+  ) {}
 
   async start(): Promise<string> {
     if (this.origin) return this.origin;
@@ -66,7 +74,7 @@ export class SessionShareServer {
 
   private context(id: string, url: string) {
     const result = this.reader.context(id, url);
-    return { ...result, access: { ...result.access, readOnly: !this.bindRepository, bindRepository: !!this.bindRepository } };
+    return { ...result, access: { ...result.access, readOnly: !this.bindRepository && !this.writeback, bindRepository: !!this.bindRepository, writeback: !!this.writeback } };
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -84,23 +92,53 @@ export class SessionShareServer {
         (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'none')) { send(403, { error: '只允许本机直接访问' }); return; }
     let url: URL;
     try { url = new URL(req.url ?? '/', this.origin); } catch { send(400, { error: '无效请求地址' }); return; }
-    const match = url.pathname.match(/^\/sessions\/([A-Za-z0-9_-]{43})(?:\/(file|diff|repository))?$/);
+    const match = url.pathname.match(/^\/sessions\/([A-Za-z0-9_-]{43})(?:\/(file|diff|repository|writeback))?$/);
     const id = match ? this.store.getSharedReviewId(match[1]) : null;
     if (!id || !match) { send(404, { error: '会话不存在或分享已停止' }); return; }
     const binding = match[2] === 'repository';
-    const method = binding && this.bindRepository ? 'POST' : 'GET';
-    if ((binding && !this.bindRepository) || req.method !== method) { res.setHeader('Allow', binding ? (this.bindRepository ? 'POST' : '') : 'GET'); send(405, { error: '此端点不支持该操作' }); return; }
-    if (this.activeReads >= 4) { send(429, { error: '读取请求较多,请稍后重试' }); return; }
+    const writeback = match[2] === 'writeback';
+    const write = binding || writeback;
+    const method = write ? 'POST' : 'GET';
+    if (req.method !== method || (binding && !this.bindRepository) || (writeback && !this.writeback)) {
+      res.setHeader('Allow', method);
+      send(405, { error: '此端点不支持该操作' });
+      return;
+    }
+    if (this.activeReads >= 4) { send(429, { error: '请求较多,请稍后重试' }); return; }
     this.activeReads++;
     try {
       const sessionUrl = `${this.origin}/sessions/${match[1]}`;
-      if (binding) {
-        if (url.search) throw new ShareReadError(400, '仓库绑定参数必须通过 JSON 请求体传递');
+      const assertShare = () => {
+        if (this.store.getSharedReviewId(match[1]) !== id) throw new ShareReadError(404, '分享已停止');
+      };
+      let body: unknown;
+      if (write) {
+        if (url.search) throw new ShareReadError(400, '写入参数必须通过 JSON 请求体传递');
         if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') throw new ShareReadError(415, '请使用 application/json');
-        const input = repositoryBindingSchema.safeParse(await readJsonBody(req));
+        body = await readJsonBody(req);
+      }
+      if (writeback) {
+        const parsed = writebackSchema.safeParse(body);
+        if (!parsed.success) throw new ShareReadError(400, '需要操作类型、目标 ID、文字、requestId、confirm: true 和完整 expected 版本信息');
+        const { expected, requestId, text, kind } = parsed.data;
+        if (expected.reviewId !== id) throw new ShareReadError(409, '审核 ID 与分享链接不匹配');
+        const targetId = kind === 'reply' ? parsed.data.discussionId : parsed.data.findingId;
+        try {
+          const receipt = await this.writeback!(id, { kind, requestId, text, targetId }, assertShare,
+            () => this.reader.assertRepositoryVersion(id, expected));
+          assertShare();
+          send(200, { ...receipt, reviewId: id, requestId });
+        } catch (error) {
+          if (error instanceof ShareReadError) throw error;
+          throw new ShareReadError(422, error instanceof Error ? error.message : '无法写入此审核');
+        }
+        return;
+      }
+      if (binding) {
+        const input = repositoryBindingSchema.safeParse(body);
         if (!input.success) throw new ShareReadError(400, '需要绝对 repoPath 和完整 expected 版本信息');
         const guard = () => {
-          if (this.store.getSharedReviewId(match[1]) !== id) throw new ShareReadError(404, '分享已停止');
+          assertShare();
           this.reader.assertRepositoryVersion(id, input.data.expected);
         };
         guard();
@@ -131,13 +169,27 @@ export class SessionShareServer {
   }
 }
 
+const expectedVersion = z.object({
+  reviewId: z.string().min(1), head: z.string().nullable(), round: z.number().int().nonnegative(),
+  base: z.string().nullable(), repositoryPath: z.string().nullable(), updatedAt: z.number().int().nonnegative(),
+}).strict();
+
 const repositoryBindingSchema = z.object({
   repoPath: z.string().min(1).max(4096).refine(value => path.isAbsolute(value) && !value.includes('\0')),
-  expected: z.object({
-    reviewId: z.string().min(1), head: z.string().nullable(), round: z.number().int().nonnegative(),
-    base: z.string().nullable(), repositoryPath: z.string().nullable(), updatedAt: z.number().int().nonnegative(),
-  }).strict(),
+  expected: expectedVersion,
 }).strict();
+
+const writebackFields = {
+  expected: expectedVersion,
+  requestId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  text: z.string().trim().min(1).max(8000),
+  confirm: z.literal(true),
+};
+const targetId = z.string().min(1).max(128);
+const writebackSchema = z.discriminatedUnion('kind', [
+  z.object({ ...writebackFields, kind: z.literal('reply'), discussionId: targetId }).strict(),
+  z.object({ ...writebackFields, kind: z.literal('mark-fixed'), findingId: targetId }).strict(),
+]);
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {

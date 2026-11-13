@@ -345,7 +345,7 @@ CREATE TABLE workspace_finding_links (
 );
 `;
 
-// 分享只授予读取单条审核的能力,令牌随任务删除级联失效。
+// 分享授权限定在单条审核,令牌随任务删除级联失效。
 const V29 = `
 CREATE TABLE review_shares (
   token TEXT PRIMARY KEY,
@@ -390,9 +390,19 @@ const V37 = `
 ALTER TABLE reviews ADD COLUMN local_title TEXT;
 `;
 
+const V38 = `
+CREATE TABLE review_share_writebacks (
+  review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  PRIMARY KEY (review_id, request_id)
+);
+`;
+
 const MIGRATIONS: string[] = [
   V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20,
-  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33, V34, V35, V36, V37,
+  V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33, V34, V35, V36, V37, V38,
 ];
 
 export function migrate(db: Database): void {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""通过 Duetlens 分享端口读取会话或显式关联仓库；不使用 GUI、代理或数据库。"""
+"""通过 Duetlens 分享端口读取会话、回写审核或关联仓库；不使用 GUI、代理或数据库。"""
 import hashlib
 import argparse
 import json
@@ -93,21 +93,50 @@ class Client:
         context = self.context() if context is None else context
         if not context.get("access", {}).get("bindRepository"):
             raise ClientError("此运行实例未开放仓库绑定 HTTP 接口，请先更新应用")
+        expected = self.expected(context)
+        result = self.post("repository", {"repoPath": repo_path, "expected": expected})
+        if result.get("kind") != "duetlens.shared-review" or result.get("review", {}).get("id") != expected["reviewId"]:
+            raise ClientError("绑定响应会话不匹配，请停止并核对")
+        return result
+
+    @staticmethod
+    def expected(context):
         review, repository = context["review"], context["repository"]
-        body = {"repoPath": repo_path, "expected": {
+        return {
             "reviewId": review["id"], "head": review["head"], "round": review["round"],
             "base": review["baseRef"], "repositoryPath": repository["path"], "updatedAt": review["updatedAt"],
-        }}
-        request = Request(self.url + "/repository", data=json.dumps(body).encode(),
+        }
+
+    def writeback(self, kind, target, text, request_id):
+        context = self.context()
+        if not context.get("access", {}).get("writeback"):
+            raise ClientError("此运行实例未开放讨论回复或 finding 处置接口，请先更新应用")
+        expected = self.expected(context)
+        field = "discussionId" if kind == "reply" else "findingId"
+        text = text.strip()
+        if not request_id:
+            identity = json.dumps([expected["reviewId"], kind, target, text], ensure_ascii=False).encode()
+            request_id = hashlib.sha256(identity).hexdigest()
+        result = self.post("writeback", {
+            "kind": kind, field: target, "text": text, "requestId": request_id,
+            "confirm": True, "expected": expected,
+        })
+        if (result.get("kind") != kind or result.get("reviewId") != expected["reviewId"]
+                or result.get("requestId") != request_id or result.get(field) != target):
+            raise ClientError("回写响应与请求不匹配，请停止并核对")
+        return result
+
+    def post(self, action, body):
+        request = Request(self.url + "/" + action, data=json.dumps(body).encode(),
                           headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "duetlens-skill/1"}, method="POST")
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 data = response.read(MAX_RESPONSE + 1)
                 if len(data) > MAX_RESPONSE:
-                    raise ClientError("绑定响应过大，请重新读取上下文核对结果")
+                    raise ClientError("写入响应过大，请重新读取上下文核对结果")
                 result = json.loads(data)
-                if result.get("kind") != "duetlens.shared-review" or result.get("review", {}).get("id") != review["id"]:
-                    raise ClientError("绑定响应会话不匹配，请停止并核对")
+                if not isinstance(result, dict):
+                    raise ClientError("写入响应不是 JSON 对象，请先 GET 核对结果")
                 return result
         except HTTPError as error:
             detail = error.read(4096).decode("utf-8", errors="replace")
@@ -117,7 +146,7 @@ class Client:
                 pass
             raise ResponseError(error.code, str(detail)) from None
         except (URLError, OSError, UnicodeError, ValueError) as error:
-            raise ClientError(f"绑定结果不确定，请先 GET 核对，不要自动重发: {error}") from None
+            raise ClientError(f"写入结果不确定，请先 GET 核对，不要自动重发: {error}") from None
 
     def versioned(self, command, file_path=None):
         for attempt in range(3):
@@ -192,11 +221,15 @@ def discover(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("discover", "context", "comments", "file", "diff", "bind-repository"))
+    parser.add_argument("command", choices=("discover", "context", "comments", "file", "diff", "bind-repository", "reply", "mark-fixed"))
     parser.add_argument("url", nargs="?")
     parser.add_argument("--path", dest="file_path")
     parser.add_argument("--repo-path")
-    parser.add_argument("--confirm", action="store_true", help="确认已获用户授权修改此审核的仓库绑定")
+    parser.add_argument("--discussion-id")
+    parser.add_argument("--finding-id")
+    parser.add_argument("--text")
+    parser.add_argument("--request-id")
+    parser.add_argument("--confirm", action="store_true", help="确认已获用户授权执行本次写入")
     parser.add_argument("--timeout", type=float, default=45)
     parser.add_argument("--data-dir", type=Path, default=Path.home() / "Library/Application Support/Duetlens")
     args = parser.parse_args()
@@ -206,6 +239,9 @@ def main():
         parser.error("file 需要 --path 仓库相对路径")
     if args.command == "bind-repository" and (not args.repo_path or not args.confirm):
         parser.error("bind-repository 需要 --repo-path 绝对目录和 --confirm；不会自动同步或审核")
+    target = args.discussion_id if args.command == "reply" else args.finding_id
+    if args.command in ("reply", "mark-fixed") and (not target or not args.text or not args.text.strip() or not args.confirm):
+        parser.error("reply 需要 --discussion-id，mark-fixed 需要 --finding-id，两者均需 --text 和 --confirm")
     if not 0 < args.timeout <= 180:
         parser.error("timeout 必须在 0 到 180 秒之间")
     try:
@@ -217,6 +253,8 @@ def main():
                 result = client.context()
             elif args.command == "bind-repository":
                 result = client.bind_repository(args.repo_path)
+            elif args.command in ("reply", "mark-fixed"):
+                result = client.writeback(args.command, target, args.text, args.request_id)
             elif args.command == "comments":
                 result = comments(client.context())
             else:

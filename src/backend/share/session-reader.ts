@@ -66,12 +66,12 @@ export class SharedSessionReader {
       usage: { transport: 'HTTP GET; 可使用 curl 或本机 HTTP 客户端,无需 computer-use',
         next: '先读取 discussions 中的用户评论,再按 files.url 获取审核版本文件。repository.path 是本机代码目录,修改前应核对实际文件内容。',
         lifetime: 'Duetlens 运行时可用;停止分享或删除会话后失效。',
-        scope: '此链接只读取这一份审核视图,切换远端/本地不会改变它的指向。',
+        scope: '此链接只指向这一份审核视图,切换远端/本地不会改变它的指向。',
         version: '文件和 diff 请求必须携带本次响应给出的 head、round 和 base;若返回 409,重新读取会话链接。' },
     };
   }
 
-  /** 目录写操作同时钉住审核版本和旧目录,避免外部客户端覆盖期间发生的绑定变更。 */
+  /** 写操作同时校验审核版本和关联目录。 */
   assertRepositoryVersion(id: string, expected: { reviewId: string; head: string | null; round: number; base: string | null; repositoryPath: string | null; updatedAt: number }): void {
     const review = this.review(id);
     if (expected.reviewId !== id || expected.head !== this.head(review) || expected.round !== review.currentRound ||

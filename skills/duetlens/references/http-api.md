@@ -7,7 +7,7 @@
 - macOS 端口文件：`~/Library/Application Support/Duetlens/share-server.json`，内容为 `{"port": number}`。开发版可显式提供其他数据目录，不自动混用。
 - 服务仅监听 `127.0.0.1`。首次分享时启动；存在有效分享时应用重启会尝试恢复监听原端口。
 - 应用运行且分享未撤销时链接可读；应用退出后不可读。原端口冲突会导致启动失败。
-- `/`、`/health`、会话列表、创建分享等均不是当前公开协议；唯一写端点为下述仓库绑定。端口文件不包含分享令牌。当前不能通过 HTTP 枚举未分享任务或创建分享。
+- `/`、`/health`、会话列表、创建分享等均不是当前公开协议。端口文件不包含分享令牌。当前不能通过 HTTP 枚举未分享任务或创建分享。
 - 不发送 `Origin`、伪造 Host 或通过网页跨域访问。Python/curl 直接请求即可。服务校验 Host，不开放 CORS。
 - token 是 32 随机字节的 base64url 表示（43 个字符），本地和远端视图各有自己的分享 token。
 
@@ -18,7 +18,7 @@
 JSON 会话上下文：
 
 - `kind: "duetlens.shared-review"`、`schemaVersion: 1`、`generatedAt`。
-- `access: {localOnly: true, readOnly: boolean, liveComments: true, bindRepository?: boolean}`。新版装配绑定能力时 readOnly=false、bindRepository=true；其余写操作仍不支持。旧版本只有只读能力。
+- `access: {localOnly: true, readOnly: boolean, liveComments: true, bindRepository?: boolean, writeback?: boolean}`。各写能力独立声明。任一能力启用时 readOnly=false。
 - `repository: {path, source, sourceRef}`。path 是本机仓库根目录，可能为空。
 - `review: {id,title,mode,round,head,reviewedHead,reviewedBase,baseRef,status,summary,...}`。
   `head` 是当前可读快照，`reviewedHead` 是上一轮审核版本；本地代码更新后两者可能不同。
@@ -70,6 +70,16 @@ JSON 会话上下文：
 
 失败不自动重发 POST。超时或连接中断时先 GET 核对结果；绑定成功但响应丢失也可能已经完成。升级应用重启后已有分享 token/端口继续有效；旧运行实例不会热更新,能力以实际 GET 的 access.bindRepository 为准。
 
+## `POST /sessions/{token}/writeback`
+
+在 `access.writeback === true` 且用户已授权时使用。沿用分享链接的审核视图、版本字段、JSON 请求和 16 KiB 上限。
+
+- 回复讨论发送 `{kind:"reply", discussionId, text, requestId, confirm:true, expected}`。正文以 agent 对话追加到已有讨论，保留原批注。
+- 标记已修复发送 `{kind:"mark-fixed", findingId, text, requestId, confirm:true, expected}`。text 为修复及验证说明。复用 finding 自动结案逻辑，原 finding 和讨论仍可读取。已修复的 finding 不覆盖说明，人工剔除的 finding 保留原裁决。
+- 200 回执包含 `{reviewId, requestId, kind, replayed}`，并按操作返回 `{discussionId,messageId}` 或 `{findingId,alreadyFixed}`。不会启动模型或发布 GitHub 评论。
+
+`requestId` 允许 1–128 个 ASCII 字母、数字、下划线或连字符。相同审核、requestId、目标、操作和正文会返回第一次写入的回执（`replayed:true`），即使应用已重启或版本已前进。同一 requestId 换内容返回 409。回执代表原请求的结果，当前状态仍应通过 GET 核对。客户端默认按审核 ID、操作、目标和正文生成稳定 requestId；需要明确发一条相同正文的新回复时，使用新的 `--request-id`。正文按去掉首尾空白后的内容校验。
+
 ## 状态码与恢复
 
 | 状态 | 含义 | 处理 |
@@ -77,10 +87,10 @@ JSON 会话上下文：
 | 403 | Host/Origin/浏览器访问限制 | 本机 HTTP 客户端直接访问 127.0.0.1，不经代理或浏览器 |
 | 404 | 令牌失效、任务删除或文件不在范围/已删除 | 区分上下文和文件端点；不猜新 token，不把删除文件错误当成整个服务不可用 |
 | 400 | JSON、绝对路径或 expected 字段无效 | 按协议提供完整请求 |
-| 405 | 端点/方法不支持或旧实例未开放绑定 | GET 读取,仅 repository 支持 POST；不能 POST 评论或解决状态 |
-| 413 | 请求体超过 16 KiB | 缩小绑定请求 |
-| 422 | 应用领域校验拒绝关联 | 按返回原因处理；不绕过独立本地视图、PR 或仓库身份限制 |
-| 409 | head/round/base 已变化、快照不可用或绑定的旧目录/updatedAt 不匹配 | 重新 GET 会话，再使用新的 file/diff URL；连续变化时报告阻塞 |
+| 405 | 端点/方法不支持或旧实例未开放写入 | 检查 access 对应能力及请求方法 |
+| 413 | 请求体超过 16 KiB | 缩小写入请求 |
+| 422 | 应用领域校验拒绝写入 | 按返回原因处理；不绕过独立本地视图、PR 或仓库身份限制 |
+| 409 | head/round/base 已变化、快照不可用、写入版本不匹配或 requestId 已用于不同内容 | 重新 GET 会话，再使用新的 file/diff URL；连续变化时报告阻塞 |
 | 415 | 二进制文件或 POST 非 JSON | 报告不可读能力及文件，使用适合该文件类型的已授权本地工具 |
 | 429 | 并发读取超限 | 服务最多 4 个并发请求，按需串行读取并有界重试 |
 | 500 | 应用无法刷新或读取会话 | 报告具体失败；不通过 GUI/DB 绕过接口 |
@@ -89,7 +99,7 @@ JSON 会话上下文：
 
 ## 当前没有的能力
 
-分享端口没有评论回写、回复、解决/处置状态更新、启动复审、Git 同步、视图切换、会话列表、创建/撤销分享的 HTTP API，也没有 SSE/WebSocket 评论订阅。所谓 liveComments 是每次 GET 读取当前数据，不是推送流。
+分享端口没有编辑或删除原批注、启动复审、Git 同步、视图切换、会话列表、创建/撤销分享的 HTTP API，也没有 SSE/WebSocket 评论订阅。所谓 liveComments 是每次 GET 读取当前数据，不是推送流。
 
 「PR 评论」界面可展示 GitHub 评论,但分享 JSON 的 `discussions` 仍只包含 Duetlens 自己保存的批注,不能把它当成完整的 GitHub 评论集合。若任务要求读取 GitHub 评论,应明确这个端口缺口；可根据 `repository.sourceRef` 通过已授权的 GitHub API/gh CLI 读取 GitHub 数据,无需操作 Duetlens UI。
 

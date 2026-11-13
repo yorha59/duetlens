@@ -33,7 +33,7 @@ export function ShareSessionButton({ reviewId }: { reviewId: string }) {
       {error ? <p role="alert">{error}</p> : <>
         <p role="status">会话链接已复制</p>
         <input aria-label="会话分享链接" readOnly value={url} onFocus={(event) => event.target.select()} />
-        <p>粘贴给本机 Codex，即可读取当前视图的评论、行号及审核版本文件。新增评论实时可读，请保持 Duetlens 运行。</p>
+        <p>粘贴给本机 Codex，即可读取当前视图的评论、行号及审核版本文件。也可按你的要求回复讨论、标记 finding 已修复。请保持 Duetlens 运行，只把链接交给可信的本机客户端。</p>
         <button type="button" disabled={busy} onClick={() => void (async () => {
           setBusy(true); setError('');
           try { await window.duetlens.review.revokeShare(reviewId); setUrl(''); setOpen(false); }
