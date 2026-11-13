@@ -409,7 +409,11 @@ export class ReviewManager extends EventEmitter {
   }
 
   async writeSharedReview(reviewId: string, input: ShareWriteback, assertShare: () => void, assertVersion: () => void) {
-    const fingerprint = createHash('sha256').update(JSON.stringify([input.kind, input.targetId, input.text])).digest('hex');
+    const payload = input.kind === 'delete-note'
+      ? [input.kind, input.targetId, input.sha256, input.replyRequestId]
+      : [input.kind, input.targetId, input.text];
+    if (input.kind === 'reply' && input.note) payload.push(input.note.messageId, input.note.sha256);
+    const fingerprint = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     const replay = () => {
       assertShare();
       const prior = this.store.getShareWriteback(reviewId, input.requestId);
@@ -428,6 +432,14 @@ export class ReviewManager extends EventEmitter {
     }
     const current = this.assertWorkspaceIdle(reviewId);
     assertVersion();
+    const checkNote = (messages: Message[], id: string, sha256: string) => {
+      const note = messages.find(message => message.id === id && message.role === 'user' && message.kind === 'note');
+      if (!note) throw new ShareReadError(404, '人工批注不在此讨论中');
+      if (createHash('sha256').update(note.text).digest('hex') !== sha256) {
+        throw new ShareReadError(409, '批注正文已修改,请重新核对');
+      }
+      return note;
+    };
     let event: ReviewEvent | undefined;
     const receipt = this.store.transaction((): ShareWritebackReceipt => {
       let result: ShareWritebackReceipt;
@@ -436,9 +448,28 @@ export class ReviewManager extends EventEmitter {
         if (discussion?.reviewId !== reviewId || !workspaceAnchorVisible(discussion, current, this.getDiff(reviewId))) {
           throw new ShareReadError(404, '讨论不在此会话的当前范围内');
         }
+        if (input.note) checkNote(this.store.listMessages(discussion.id), input.note.messageId, input.note.sha256);
         const message = this.store.addMessage(discussion.id, 'agent', input.text, 'chat');
-        result = { kind: 'reply', discussionId: discussion.id, messageId: message.id };
+        result = { kind: 'reply', discussionId: discussion.id, messageId: message.id, note: input.note };
         event = { reviewId, type: 'message', payload: message };
+      } else if (input.kind === 'delete-note') {
+        const saved = this.store.getShareWriteback(reviewId, input.replyRequestId);
+        const reply = saved && JSON.parse(saved.result_json) as ShareWritebackReceipt;
+        if (reply?.kind !== 'reply' || reply.note?.messageId !== input.targetId || reply.note.sha256 !== input.sha256) {
+          throw new ShareReadError(422, '需要对此条批注正文的定向回写回复');
+        }
+        const discussion = this.store.getDiscussion(reply.discussionId);
+        if (discussion?.reviewId !== reviewId || !workspaceAnchorVisible(discussion, current, this.getDiff(reviewId))) {
+          throw new ShareReadError(404, '讨论不在此会话的当前范围内');
+        }
+        const messages = this.store.listMessages(discussion.id);
+        if (!messages.some(message => message.id === reply.messageId && message.role === 'agent' && message.kind === 'chat')) {
+          throw new ShareReadError(422, '对应回复已不存在');
+        }
+        const note = checkNote(messages, input.targetId, input.sha256);
+        this.store.deleteUserMessage(reviewId, note.id, note.text);
+        result = { kind: 'delete-note', discussionId: discussion.id, messageId: note.id };
+        event = { reviewId, type: 'message-deleted', discussionId: discussion.id, messageId: note.id };
       } else {
         const finding = this.store.getFinding(input.targetId);
         if (finding?.reviewId !== reviewId || !workspaceAnchorVisible(finding, current, this.getDiff(reviewId))) {

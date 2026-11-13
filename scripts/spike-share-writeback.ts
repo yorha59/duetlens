@@ -1,6 +1,7 @@
 /** 走真实 HTTP、ReviewManager、SQLite 和 Python 客户端，仅使用临时审核。 */
 import { strict as assert } from 'node:assert';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -118,6 +119,50 @@ async function main() {
     assert.equal((await call(...replyArgs, '--confirm')).messageId, added.messageId);
     assert.equal(store.listMessages(finding.discussionId).length, 3);
     assert.equal((await call('mark-fixed', url, '--finding-id', finding.id, '--text', '验证通过', '--confirm')).alreadyFixed, true);
+    assert.equal((await call('context', url)).access.deleteNote, true);
+    const digest = createHash('sha256').update(note.text).digest('hex');
+    const sibling = store.addMessage(finding.discussionId, 'user', 'Another note', 'note');
+    const remove = { kind: 'delete-note', messageId: note.id, sha256: digest, replyRequestId: reply.requestId,
+      requestId: 'delete-1', confirm: true, expected: expected(await get()) };
+    assert.equal((await post(remove)).status, 422, 'generic reply does not qualify');
+    assert.equal((await post({ ...remove, kind: 'delete-finding' })).status, 400);
+    const targetedArgs = [...replyArgs.slice(0, -1), '处理原批注', '--message-id', note.id, '--note-sha256', digest, '--confirm'];
+    const targeted = await call(...targetedArgs);
+    const authorized = { ...remove, replyRequestId: targeted.requestId, expected: expected(await get()) };
+    assert.equal((await post({ ...authorized, confirm: false })).status, 400);
+    assert.equal((await post({ ...authorized, messageId: sibling.id })).status, 422);
+    const otherShare = await server.share(other.id);
+    assert.equal((await post({ ...authorized, expected: expected(await get(otherShare.url)) }, {}, otherShare.url)).status, 422);
+    const removedReplyNote = store.addMessage(dismissed.discussionId, 'user', 'Note with cleared reply', 'note');
+    const removedReplyDigest = createHash('sha256').update(removedReplyNote.text).digest('hex');
+    const removedReply = await call('reply', url, '--discussion-id', dismissed.discussionId,
+      '--message-id', removedReplyNote.id, '--note-sha256', removedReplyDigest, '--text', 'Processed', '--confirm');
+    store.clearMessages(dismissed.discussionId, 'chat');
+    assert.equal((await post({ ...authorized, messageId: removedReplyNote.id, sha256: removedReplyDigest,
+      replyRequestId: removedReply.requestId, expected: expected(await get()) })).status, 422);
+    assert.equal(store.listMessages(dismissed.discussionId)[0].id, removedReplyNote.id);
+
+    assert.equal((await post({ ...authorized, expected: remove.expected })).status, 409);
+    store.updateUserMessage(review.id, note.id, 'Edited by user', note.text);
+    assert.equal((await post({ ...authorized, expected: expected(await get()) })).status, 409, 'a reply to old text cannot authorize deletion');
+    store.updateUserMessage(review.id, note.id, note.text, 'Edited by user');
+    const deleteArgs = ['delete-note', url, '--message-id', note.id, '--note-sha256', digest,
+      '--reply-request-id', targeted.requestId, '--request-id', authorized.requestId, '--confirm'];
+    const removed = await call(...deleteArgs);
+    assert.equal(removed.messageId, note.id);
+    assert.equal((await call(...deleteArgs)).replayed, true);
+    const remaining = store.listMessages(finding.discussionId);
+    assert(!remaining.some(message => message.id === note.id));
+    assert(remaining.some(message => message.id === sibling.id));
+    assert(remaining.some(message => message.id === targeted.messageId));
+    assert.equal(events.filter(event => event.type === 'message-deleted').length, 1);
+    await server.close();
+    db.close();
+    db = openDatabase(dbPath);
+    store = new ReviewStore(db);
+    server = makeServer();
+    await server.start();
+    assert.equal((await call(...deleteArgs)).replayed, true);
     store.setReviewStatus(review.id, 'scanning');
     assert.equal((await post({ ...reply, requestId: 'while-busy', expected: expected(await get()) })).status, 422);
 

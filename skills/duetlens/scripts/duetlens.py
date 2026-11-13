@@ -107,22 +107,24 @@ class Client:
             "base": review["baseRef"], "repositoryPath": repository["path"], "updatedAt": review["updatedAt"],
         }
 
-    def writeback(self, kind, target, text, request_id):
+    def writeback(self, kind, fields, request_id):
         context = self.context()
-        if not context.get("access", {}).get("writeback"):
-            raise ClientError("此运行实例未开放讨论回复或 finding 处置接口，请先更新应用")
+        capability = "deleteNote" if kind == "delete-note" or "note" in fields else "writeback"
+        if not context.get("access", {}).get(capability):
+            raise ClientError("此运行实例未开放所请求的回写能力，请先更新应用")
         expected = self.expected(context)
-        field = "discussionId" if kind == "reply" else "findingId"
-        text = text.strip()
         if not request_id:
-            identity = json.dumps([expected["reviewId"], kind, target, text], ensure_ascii=False).encode()
+            identity = json.dumps([expected["reviewId"], kind, fields], ensure_ascii=False, sort_keys=True).encode()
+            if kind in ("reply", "mark-fixed") and "note" not in fields:
+                field = "discussionId" if kind == "reply" else "findingId"
+                identity = json.dumps([expected["reviewId"], kind, fields[field], fields["text"]], ensure_ascii=False).encode()
             request_id = hashlib.sha256(identity).hexdigest()
         result = self.post("writeback", {
-            "kind": kind, field: target, "text": text, "requestId": request_id,
-            "confirm": True, "expected": expected,
+            **fields, "kind": kind, "requestId": request_id, "confirm": True, "expected": expected,
         })
+        target = {"reply": "discussionId", "mark-fixed": "findingId", "delete-note": "messageId"}[kind]
         if (result.get("kind") != kind or result.get("reviewId") != expected["reviewId"]
-                or result.get("requestId") != request_id or result.get(field) != target):
+                or result.get("requestId") != request_id or result.get(target) != fields[target]):
             raise ClientError("回写响应与请求不匹配，请停止并核对")
         return result
 
@@ -221,12 +223,15 @@ def discover(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("discover", "context", "comments", "file", "diff", "bind-repository", "reply", "mark-fixed"))
+    parser.add_argument("command", choices=("discover", "context", "comments", "file", "diff", "bind-repository", "reply", "mark-fixed", "delete-note"))
     parser.add_argument("url", nargs="?")
     parser.add_argument("--path", dest="file_path")
     parser.add_argument("--repo-path")
     parser.add_argument("--discussion-id")
     parser.add_argument("--finding-id")
+    parser.add_argument("--message-id")
+    parser.add_argument("--note-sha256")
+    parser.add_argument("--reply-request-id")
     parser.add_argument("--text")
     parser.add_argument("--request-id")
     parser.add_argument("--confirm", action="store_true", help="确认已获用户授权执行本次写入")
@@ -239,9 +244,28 @@ def main():
         parser.error("file 需要 --path 仓库相对路径")
     if args.command == "bind-repository" and (not args.repo_path or not args.confirm):
         parser.error("bind-repository 需要 --repo-path 绝对目录和 --confirm；不会自动同步或审核")
-    target = args.discussion_id if args.command == "reply" else args.finding_id
-    if args.command in ("reply", "mark-fixed") and (not target or not args.text or not args.text.strip() or not args.confirm):
-        parser.error("reply 需要 --discussion-id，mark-fixed 需要 --finding-id，两者均需 --text 和 --confirm")
+    fields = {}
+    if args.command == "reply":
+        if not args.discussion_id or bool(args.message_id) != bool(args.note_sha256):
+            parser.error("reply 需要 --discussion-id；定向回复需要同时提供 --message-id 和 --note-sha256")
+        fields["discussionId"] = args.discussion_id
+        if args.message_id:
+            fields["note"] = {"messageId": args.message_id, "sha256": args.note_sha256}
+    elif args.command == "mark-fixed":
+        if not args.finding_id:
+            parser.error("mark-fixed 需要 --finding-id")
+        fields["findingId"] = args.finding_id
+    elif args.command == "delete-note":
+        if not args.message_id or not args.note_sha256 or not args.reply_request_id:
+            parser.error("delete-note 需要 --message-id、--note-sha256 和 --reply-request-id")
+        fields = {"messageId": args.message_id, "sha256": args.note_sha256, "replyRequestId": args.reply_request_id}
+    if fields:
+        if not args.confirm:
+            parser.error("回写需要 --confirm")
+        if args.command != "delete-note":
+            if not args.text or not args.text.strip():
+                parser.error("reply 和 mark-fixed 需要 --text")
+            fields["text"] = args.text.strip()
     if not 0 < args.timeout <= 180:
         parser.error("timeout 必须在 0 到 180 秒之间")
     try:
@@ -253,8 +277,8 @@ def main():
                 result = client.context()
             elif args.command == "bind-repository":
                 result = client.bind_repository(args.repo_path)
-            elif args.command in ("reply", "mark-fixed"):
-                result = client.writeback(args.command, target, args.text, args.request_id)
+            elif fields:
+                result = client.writeback(args.command, fields, args.request_id)
             elif args.command == "comments":
                 result = comments(client.context())
             else:

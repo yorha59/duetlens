@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ReviewStore } from '../db/review-store';
 import { SharedSessionReader, ShareReadError } from './session-reader';
-import type { ShareWritebackHandler } from './session-writeback';
+import type { ShareWriteback, ShareWritebackHandler } from './session-writeback';
 
 /** 本机审核分享入口,独立于审核 agent 的临时 MCP,不会占用 agent 或启动模型。 */
 export class SessionShareServer {
@@ -74,7 +74,7 @@ export class SessionShareServer {
 
   private context(id: string, url: string) {
     const result = this.reader.context(id, url);
-    return { ...result, access: { ...result.access, readOnly: !this.bindRepository && !this.writeback, bindRepository: !!this.bindRepository, writeback: !!this.writeback } };
+    return { ...result, access: { ...result.access, readOnly: !this.bindRepository && !this.writeback, bindRepository: !!this.bindRepository, writeback: !!this.writeback, deleteNote: !!this.writeback } };
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -119,12 +119,16 @@ export class SessionShareServer {
       }
       if (writeback) {
         const parsed = writebackSchema.safeParse(body);
-        if (!parsed.success) throw new ShareReadError(400, '需要操作类型、目标 ID、文字、requestId、confirm: true 和完整 expected 版本信息');
-        const { expected, requestId, text, kind } = parsed.data;
+        if (!parsed.success) throw new ShareReadError(400, '需要操作类型、目标 ID、对应操作字段、requestId、confirm: true 和完整 expected 版本信息');
+        const { expected, requestId, kind } = parsed.data;
         if (expected.reviewId !== id) throw new ShareReadError(409, '审核 ID 与分享链接不匹配');
-        const targetId = kind === 'reply' ? parsed.data.discussionId : parsed.data.findingId;
+        const input: ShareWriteback = kind === 'reply'
+          ? { kind, requestId, targetId: parsed.data.discussionId, text: parsed.data.text, note: parsed.data.note }
+          : kind === 'mark-fixed'
+            ? { kind, requestId, targetId: parsed.data.findingId, text: parsed.data.text }
+            : { kind, requestId, targetId: parsed.data.messageId, sha256: parsed.data.sha256, replyRequestId: parsed.data.replyRequestId };
         try {
-          const receipt = await this.writeback!(id, { kind, requestId, text, targetId }, assertShare,
+          const receipt = await this.writeback!(id, input, assertShare,
             () => this.reader.assertRepositoryVersion(id, expected));
           assertShare();
           send(200, { ...receipt, reviewId: id, requestId });
@@ -179,16 +183,19 @@ const repositoryBindingSchema = z.object({
   expected: expectedVersion,
 }).strict();
 
+const requestId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const writebackFields = {
   expected: expectedVersion,
-  requestId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-  text: z.string().trim().min(1).max(8000),
+  requestId,
   confirm: z.literal(true),
 };
 const targetId = z.string().min(1).max(128);
+const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
+const text = z.string().trim().min(1).max(8000);
 const writebackSchema = z.discriminatedUnion('kind', [
-  z.object({ ...writebackFields, kind: z.literal('reply'), discussionId: targetId }).strict(),
-  z.object({ ...writebackFields, kind: z.literal('mark-fixed'), findingId: targetId }).strict(),
+  z.object({ ...writebackFields, kind: z.literal('reply'), discussionId: targetId, text, note: z.object({ messageId: targetId, sha256 }).strict().optional() }).strict(),
+  z.object({ ...writebackFields, kind: z.literal('mark-fixed'), findingId: targetId, text }).strict(),
+  z.object({ ...writebackFields, kind: z.literal('delete-note'), messageId: targetId, sha256, replyRequestId: requestId }).strict(),
 ]);
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {

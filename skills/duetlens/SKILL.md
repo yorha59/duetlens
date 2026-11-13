@@ -1,6 +1,6 @@
 ---
 name: duetlens
-description: 通过 Duetlens 本地 HTTP 分享端口读取批注、对话和版本文件，按用户要求完成代码修改与验证，并可按授权回复讨论、标记 finding 已修复或关联本地仓库。适用于分享链接或“处理 Duetlens 批注”的请求，不用于维护 Duetlens 应用自身。
+description: 通过 Duetlens 本地 HTTP 分享端口读取批注、对话和版本文件，按用户要求完成代码修改与验证，并可按授权回复讨论、删除已处理批注、标记 finding 已修复或关联本地仓库。适用于分享链接或“处理 Duetlens 批注”的请求，不用于维护 Duetlens 应用自身。
 ---
 
 # Duetlens 评论到代码修改
@@ -65,9 +65,18 @@ python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" mark-fixed '分享链接' --fi
 
 回复追加在原讨论的「对话」中，原批注保留。标记已修复沿用 Duetlens 的结案状态和说明。每次写完重读同一会话确认。默认用同一内容生成稳定 requestId；超时先 GET 核对，再以原 requestId 重试。409 先核对快照、目标与用户意见是否仍适用。详见 [HTTP 协议](references/http-api.md)。
 
+用户明确要求清理已处理批注时，从 `comments` 取 `noteMessageIds` 和 `userMessageDigests[messageId]`。先完成并验证处理结果，再在原讨论针对这条批注写回复。使用回复回执的 `requestId` 删除该批注：
+
+```bash
+python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" reply "$share_url" --discussion-id "$discussion_id" --message-id "$message_id" --note-sha256 "$note_sha256" --text '处理结果及验证' --confirm
+python3 "$DUETLENS_SKILL_DIR/scripts/duetlens.py" delete-note "$share_url" --message-id "$message_id" --note-sha256 "$note_sha256" --reply-request-id "$reply_request_id" --confirm
+```
+
+复读确认只删了目标批注，回复仍可见。处理失败、需要用户决策、正文已被修改时，保留批注并说明原因。旧版普通回复回执未绑定具体批注，不能用于删除。Finding 已修复后通过 `mark-fixed` 结案，在「已处理」中可查历史。
+
 ## 能力不足必须抛出
 
-分享端口支持 GET 读取。以响应的 `access.bindRepository` 和 `access.writeback` 判断当前实例可用的写操作。需要的能力缺失时，明确给出“缺什么 → 影响什么 → 已完成什么 → 需要补什么接口/信息”。不要静默跳过、捏造端点、用 Electron preload IPC 冒充 HTTP API、借别的任务的 MCP 工具操作当前任务，或转用 computer-use。
+分享端口支持 GET 读取。以响应的 `access.bindRepository` 、`access.writeback` 和 `access.deleteNote` 判断当前实例可用的写操作。需要的能力缺失时，明确给出“缺什么 → 影响什么 → 已完成什么 → 需要补什么接口/信息”。不要静默跳过、捏造端点、用 Electron preload IPC 冒充 HTTP API、借别的任务的 MCP 工具操作当前任务，或转用 computer-use。
 
 - 缺少会话枚举/创建分享：没有链接就无法从端口定位任务；请求一次分享链接，指出需要会话发现接口。
 - 缺少评论回复/处理状态写入：继续修代码并验证，在最终结果中报告无法自动回写及对应讨论 ID。

@@ -4,6 +4,10 @@ Only **user-visible** changes are recorded here. Internal refactors, docs and CI
 listed — read `git log` for those. Versions follow [Semantic Versioning](https://semver.org/);
 while on `0.x`, the minor position doubles as the breaking-change position.
 
+## [0.12.2-fork.43] - 2026-11-13
+
+- The local share API can delete an individual reviewer note after a reply linked to that note. The reply and other messages remain available.
+
 ## [0.12.2-fork.42] - 2026-11-13
 
 - Returning to a local review checks the worktree and hides discussions whose anchors are gone. Unsent drafts from hidden discussions remain recoverable in a collapsed section.

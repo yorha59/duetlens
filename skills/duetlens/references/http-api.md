@@ -18,7 +18,7 @@
 JSON 会话上下文：
 
 - `kind: "duetlens.shared-review"`、`schemaVersion: 1`、`generatedAt`。
-- `access: {localOnly: true, readOnly: boolean, liveComments: true, bindRepository?: boolean, writeback?: boolean}`。各写能力独立声明。任一能力启用时 readOnly=false。
+- `access: {localOnly: true, readOnly: boolean, liveComments: true, bindRepository?: boolean, writeback?: boolean, deleteNote?: boolean}`。各写能力独立声明。任一能力启用时 readOnly=false。
 - `repository: {path, source, sourceRef}`。path 是本机仓库根目录，可能为空。
 - `review: {id,title,mode,round,head,reviewedHead,reviewedBase,baseRef,status,summary,...}`。
   `head` 是当前可读快照，`reviewedHead` 是上一轮审核版本；本地代码更新后两者可能不同。
@@ -80,6 +80,12 @@ JSON 会话上下文：
 
 `requestId` 允许 1–128 个 ASCII 字母、数字、下划线或连字符。相同审核、requestId、目标、操作和正文会返回第一次写入的回执（`replayed:true`），即使应用已重启或版本已前进。同一 requestId 换内容返回 409。回执代表原请求的结果，当前状态仍应通过 GET 核对。客户端默认按审核 ID、操作、目标和正文生成稳定 requestId；需要明确发一条相同正文的新回复时，使用新的 `--request-id`。正文按去掉首尾空白后的内容校验。
 
+### 删除已回复的人工批注
+
+检查 `access.deleteNote === true`。先在同一讨论提交带 `note: {messageId, sha256}` 的 `reply`。摘要为批注原文 UTF-8 的 SHA-256（小写十六进制），`comments` 提供 `userMessageDigests`。服务在回复时校验批注 ID 和正文。完成处理并获得用户删除授权后发送 `{kind:"delete-note", messageId, sha256, replyRequestId, requestId, confirm:true, expected}`，其中 `replyRequestId` 来自定向回复回执。
+
+服务校验同一会话中的回复回执、回复仍存在、批注类型与正文版本。只删除指定的人工 `note`，保留同线程其他消息和回复。普通回复、其他批注的回执、对话消息、未分类旧留言均不能用于该操作。成功回执为 `{kind:"delete-note", reviewId, requestId, discussionId, messageId, replayed}`，同一请求可重试。Finding 使用 `mark-fixed` 结案，分享接口不物理删除 finding。
+
 ## 状态码与恢复
 
 | 状态 | 含义 | 处理 |
@@ -99,7 +105,7 @@ JSON 会话上下文：
 
 ## 当前没有的能力
 
-分享端口没有编辑或删除原批注、启动复审、Git 同步、视图切换、会话列表、创建/撤销分享的 HTTP API，也没有 SSE/WebSocket 评论订阅。所谓 liveComments 是每次 GET 读取当前数据，不是推送流。
+分享端口没有编辑原批注、物理删除 finding、启动复审、Git 同步、视图切换、会话列表、创建/撤销分享的 HTTP API，也没有 SSE/WebSocket 评论订阅。所谓 liveComments 是每次 GET 读取当前数据，不是推送流。
 
 「PR 评论」界面可展示 GitHub 评论,但分享 JSON 的 `discussions` 仍只包含 Duetlens 自己保存的批注,不能把它当成完整的 GitHub 评论集合。若任务要求读取 GitHub 评论,应明确这个端口缺口；可根据 `repository.sourceRef` 通过已授权的 GitHub API/gh CLI 读取 GitHub 数据,无需操作 Duetlens UI。
 
